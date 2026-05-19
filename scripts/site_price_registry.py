@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import re
+import tempfile
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,8 @@ from model_catalog import canonical_model_name
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
 HISTORY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-history.json"
+DASHBOARD_HTML_PATH = Path(__file__).resolve().parent.parent / "runtime" / "site-price-dashboard.html"
+DASHBOARD_META_PATH = Path(__file__).resolve().parent.parent / "runtime" / "site-price-dashboard.meta.json"
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -625,11 +628,12 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
     if "recharge_ratio" in changed_fields:
         recompute_station_records(registry, station, timestamp)
     save_registry(registry)
-    return {
+    return refresh_dashboard_after_write(registry, {
+        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
         "station": station,
         "changed_fields": unique_strings(changed_fields),
         "station_snapshot": build_station_snapshot(registry, station),
-    }
+    })
 
 
 def normalized_group(value: Any) -> str:
@@ -1453,12 +1457,13 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
 
     station["updated_at"] = timestamp
     save_registry(registry)
-    return {
+    return refresh_dashboard_after_write(registry, {
+        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
         "action": action,
         "station": station,
         "record": record,
         "station_snapshot": build_station_snapshot(registry, station),
-    }
+    })
 
 
 def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1582,12 +1587,13 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         recompute_station_records(registry, station, record["updated_at"])
     save_registry(registry)
 
-    return {
+    return refresh_dashboard_after_write(registry, {
+        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
         "station": station,
         "record": record,
         "changed_fields": unique_strings(changed_fields),
         "station_snapshot": build_station_snapshot(registry, station),
-    }
+    })
 
 
 def list_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
@@ -2486,11 +2492,423 @@ def render_station_html_document(
 def maybe_write_html_output(result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     output_file = normalize_text(payload.get("output_file"))
     if not output_file:
-        return result
+        output_file = str(Path(tempfile.gettempdir()) / f"model-price-{datetime.now().strftime('%Y%m%d-%H%M%S')}.html")
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(result.get("html", ""), encoding="utf-8")
     result["output_file"] = str(output_path)
+    return result
+
+
+def dashboard_record_item(
+    registry: Dict[str, Any],
+    station: Dict[str, Any],
+    record: Dict[str, Any],
+    medians: Dict[str, Any],
+) -> Dict[str, Any]:
+    computed = compute(build_record_pricing_payload(station, record))
+    score, _ = record_confidence(record, station)
+    warnings = record_health_warnings(station, record, anomaly_low_price_warnings(record, computed, medians))
+    cheap_reasons = item_explain_parts(station, record, "summary_rmb_per_m", computed)
+    dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
+    return {
+        "record_id": normalize_text(record.get("record_id")),
+        "station_id": normalize_text(record.get("station_id")),
+        "station_name": normalize_text(station.get("name") or record.get("station_id")),
+        "website": normalize_text(station.get("website")),
+        "notes": normalize_text(station.get("notes")),
+        "recharge_ratio": resolve_station_recharge_ratio(station, record),
+        "model_name": normalize_text(record.get("model_name")),
+        "group": normalize_text(record.get("group")),
+        "group_note": normalize_text(record.get("group_note")),
+        "multiplier": trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1"),
+        "computed_price": build_computed_price_text(record, computed),
+        "summary_rmb_per_m": normalize_text(computed.get("summary", {}).get("rmb_per_m")),
+        "input_rmb_per_m": normalize_text((dimensions.get("input") or {}).get("rmb_per_m")),
+        "output_rmb_per_m": normalize_text((dimensions.get("output") or {}).get("rmb_per_m")),
+        "cache_read_rmb_per_m": normalize_text((dimensions.get("cache_read") or {}).get("rmb_per_m")),
+        "cache_write_rmb_per_m": normalize_text((dimensions.get("cache_write") or {}).get("rmb_per_m")),
+        "confidence_score": score,
+        "confidence_label": confidence_label(score),
+        "warnings": warnings,
+        "cheap_reasons": cheap_reasons,
+        "last_verified_at": record_verified_at(station, record),
+        "updated_at": normalize_text(record.get("updated_at") or station.get("updated_at")),
+        "station_updated_at": normalize_text(station.get("updated_at")),
+        "copy_text": computed.get("copy_text"),
+    }
+
+
+def build_dashboard_data(registry: Dict[str, Any]) -> Dict[str, Any]:
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    medians = model_summary_medians(registry)
+    records = []
+    for record in registry.get("price_records", []):
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        if not station:
+            continue
+        records.append(dashboard_record_item(registry, station, record, medians))
+    models = sorted(unique_strings([record.get("model_name") for record in records]), key=lambda item: normalize_key(item))
+    groups = sorted(unique_strings([record.get("group") for record in records]), key=lambda item: normalize_key(item))
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "generated_at": generated_at,
+        "station_count": len(registry.get("stations", [])),
+        "record_count": len(records),
+        "models": models,
+        "groups": groups,
+        "records": records,
+    }
+
+
+def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    title = normalize_text(payload.get("title")) or "站点价格实时雷达"
+    theme = "light" if normalize_text(payload.get("theme")).lower() == "light" else "dark"
+    data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="zh-CN" data-theme="{html_attr(theme)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #050b0a;
+      --ink: #effdf8;
+      --muted: #8fb2a7;
+      --line: rgba(119, 255, 218, .16);
+      --panel: rgba(9, 24, 22, .76);
+      --panel2: rgba(15, 37, 33, .9);
+      --mint: #4cf6c4;
+      --gold: #ffbf4d;
+      --red: #ff667a;
+      --green: #78eda8;
+      --shadow: 0 26px 80px rgba(0,0,0,.45);
+    }}
+    [data-theme="light"] {{
+      color-scheme: light;
+      --bg: #eef5f1;
+      --ink: #10231e;
+      --muted: #526a62;
+      --line: rgba(0, 118, 95, .17);
+      --panel: rgba(255,255,255,.78);
+      --panel2: rgba(255,255,255,.94);
+      --mint: #008f73;
+      --gold: #a96800;
+      --red: #b3263a;
+      --green: #0a7f46;
+      --shadow: 0 24px 70px rgba(9, 45, 36, .16);
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ background: var(--bg); }}
+    body {{
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Aptos", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 16% 8%, rgba(76,246,196,.18), transparent 30%),
+        radial-gradient(circle at 86% 12%, rgba(255,191,77,.16), transparent 26%),
+        linear-gradient(135deg, rgba(255,255,255,.055), transparent 34%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.036) 0 1px, transparent 1px 56px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 56px),
+        var(--bg);
+    }}
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,.2) 1px, transparent 1px);
+      background-size: 3px 3px;
+      opacity: .07;
+      pointer-events: none;
+    }}
+    a {{ color: var(--mint); text-underline-offset: 3px; }}
+    button, select, input {{
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.055);
+      color: var(--ink);
+      font: inherit;
+    }}
+    button {{ cursor: pointer; padding: 0 14px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
+    button:hover {{ transform: translateY(-1px); border-color: var(--mint); }}
+    button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {{ outline: 3px solid rgba(76,246,196,.34); outline-offset: 2px; }}
+    .shell {{ width: min(1240px, calc(100% - 28px)); margin: 0 auto; padding: 30px 0 48px; }}
+    .hero {{
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 18px;
+      margin-bottom: 18px;
+      animation: rise .45s ease-out both;
+    }}
+    .panel, .card, .toolbar, .empty {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }}
+    .headline {{ position: relative; overflow: hidden; padding: 28px; }}
+    .headline::after {{
+      content: "";
+      position: absolute;
+      width: 320px;
+      height: 320px;
+      right: -120px;
+      top: -150px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      box-shadow: inset 0 0 54px rgba(76,246,196,.18);
+    }}
+    .eyebrow {{ margin: 0 0 12px; color: var(--mint); font-size: 12px; font-weight: 800; text-transform: uppercase; }}
+    h1 {{ margin: 0; max-width: 820px; font-size: clamp(32px, 6vw, 72px); line-height: .98; letter-spacing: 0; }}
+    .copy {{ margin: 18px 0 0; max-width: 780px; color: var(--muted); line-height: 1.65; font-size: 17px; }}
+    .stats {{ display: grid; gap: 12px; padding: 20px; background: var(--panel2); }}
+    .stat {{ border-bottom: 1px solid var(--line); padding-bottom: 12px; }}
+    .stat:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .stat span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .stat strong {{ display: block; margin-top: 4px; font-size: 30px; font-variant-numeric: tabular-nums; }}
+    .toolbar {{
+      position: sticky;
+      top: 10px;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(130px, auto));
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      margin-bottom: 18px;
+    }}
+    .field {{ display: grid; gap: 6px; min-width: 0; }}
+    .field label {{ color: var(--muted); font-size: 12px; font-weight: 800; }}
+    .field input, .field select {{ width: 100%; padding: 0 12px; }}
+    .board {{ display: grid; gap: 14px; }}
+    .card {{
+      position: relative;
+      overflow: hidden;
+      padding: 18px;
+      animation: cardIn .46s ease-out both;
+      animation-delay: var(--delay, 0ms);
+      transition: transform .2s ease, border-color .2s ease;
+    }}
+    .card:hover {{ transform: translateY(-3px); border-color: color-mix(in srgb, var(--mint) 48%, transparent); }}
+    .card.prime::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0 36%, rgba(76,246,196,.18) 49%, transparent 63%);
+      transform: translateX(-100%);
+      animation: scan 3.4s ease-in-out infinite;
+      pointer-events: none;
+    }}
+    .card-head {{ display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 12px; }}
+    .rank {{ margin: 0 0 4px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; }}
+    h2 {{ margin: 0; font-size: clamp(20px, 3vw, 30px); letter-spacing: 0; }}
+    .price {{ color: var(--mint); font-family: "Cascadia Mono", Consolas, monospace; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+    .meta {{ display: grid; grid-template-columns: 1.2fr .7fr .7fr; gap: 8px; margin-bottom: 12px; }}
+    .meta span {{ min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--muted); overflow-wrap: anywhere; background: rgba(255,255,255,.035); }}
+    .meta b {{ display: block; color: var(--ink); font-size: 12px; margin-bottom: 4px; }}
+    .copy-text {{ margin: 0 0 12px; color: var(--muted); line-height: 1.6; }}
+    .record-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }}
+    .cell {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: rgba(0,0,0,.12); min-width: 0; overflow-wrap: anywhere; }}
+    .cell b {{ display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }}
+    .tags {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .tag {{ border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; font-size: 12px; background: rgba(255,255,255,.045); }}
+    .tag.ok {{ color: var(--green); }}
+    .tag.warn {{ color: var(--gold); }}
+    .tag.bad {{ color: var(--red); }}
+    .empty {{ min-height: 300px; display: grid; place-items: center; text-align: center; padding: 32px; }}
+    .empty h2 {{ margin: 0 0 8px; }}
+    .empty p {{ margin: 0; color: var(--muted); }}
+    footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; text-align: center; }}
+    @keyframes rise {{ from {{ opacity: 0; transform: translateY(14px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    @keyframes cardIn {{ from {{ opacity: 0; transform: translateY(16px) scale(.99); }} to {{ opacity: 1; transform: translateY(0) scale(1); }} }}
+    @keyframes scan {{ 0%, 46% {{ transform: translateX(-100%); }} 70%, 100% {{ transform: translateX(100%); }} }}
+    @media (max-width: 980px) {{
+      .hero, .toolbar {{ grid-template-columns: 1fr; }}
+      .toolbar {{ position: static; }}
+      .meta, .record-grid {{ grid-template-columns: 1fr; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }}
+    }}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="panel headline">
+        <p class="eyebrow">Cached Price Dashboard</p>
+        <h1>{html_escape(title)}</h1>
+        <p class="copy">这个页面是预生成缓存仪表盘。打开时不再调用 Python，模型、分组、排序和 TopN 都在浏览器本地完成。</p>
+      </div>
+      <aside class="panel stats">
+        <div class="stat"><span>站点数</span><strong id="stationCount">0</strong></div>
+        <div class="stat"><span>价格记录</span><strong id="recordCount">0</strong></div>
+        <div class="stat"><span>生成时间</span><strong id="generatedAt">-</strong></div>
+      </aside>
+    </section>
+    <section class="toolbar" aria-label="筛选工具栏">
+      <div class="field"><label for="search">搜索</label><input id="search" type="search" placeholder="站点、官网、备注、分组"></div>
+      <div class="field"><label for="model">模型</label><select id="model"></select></div>
+      <div class="field"><label for="group">分组</label><select id="group"></select></div>
+      <div class="field"><label for="metric">排序</label><select id="metric"></select></div>
+      <div class="field"><label for="limit">TopN</label><select id="limit"><option>5</option><option selected>10</option><option>20</option><option>50</option><option value="9999">全部</option></select></div>
+    </section>
+    <section id="board" class="board" aria-live="polite"></section>
+    <footer>本页由 model-price-calculator 预生成 · 修改价格库后请刷新缓存页面</footer>
+  </main>
+  <script id="dashboard-data" type="application/json">{data_json}</script>
+  <script>
+    const dashboard = JSON.parse(document.getElementById('dashboard-data').textContent);
+    const state = {{ search: '', model: '', group: '', metric: 'summary_rmb_per_m', limit: 10 }};
+    const metricLabels = {{
+      summary_rmb_per_m: '综合价',
+      input_rmb_per_m: '输入价',
+      output_rmb_per_m: '输出价',
+      cache_read_rmb_per_m: '缓存读取价',
+      confidence_score: '可信度'
+    }};
+    const byId = (id) => document.getElementById(id);
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char]));
+    const numberValue = (value) => {{
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+    }};
+    const safeLink = (url) => /^https?:\\/\\//i.test(url || '') ? `<a href="${{escapeHtml(url)}}" target="_blank" rel="noopener noreferrer">${{escapeHtml(url)}}</a>` : escapeHtml(url || '未记录');
+    function fillSelect(id, values, allLabel) {{
+      const select = byId(id);
+      select.innerHTML = `<option value="">${{allLabel}}</option>` + values.map((item) => `<option value="${{escapeHtml(item)}}">${{escapeHtml(item)}}</option>`).join('');
+    }}
+    function tagHtml(text) {{
+      if (!text) return '<span class="tag ok">稳定</span>';
+      const klass = /低|过期|异常|未记录/.test(text) ? 'bad' : 'warn';
+      return `<span class="tag ${{klass}}">${{escapeHtml(text)}}</span>`;
+    }}
+    function render() {{
+      const query = state.search.trim().toLowerCase();
+      let records = dashboard.records.filter((record) => {{
+        if (state.model && record.model_name !== state.model) return false;
+        if (state.group && record.group !== state.group) return false;
+        if (!query) return true;
+        return [record.station_name, record.website, record.notes, record.model_name, record.group, record.group_note]
+          .some((value) => String(value || '').toLowerCase().includes(query));
+      }});
+      records.sort((left, right) => {{
+        if (state.metric === 'confidence_score') return Number(right.confidence_score || 0) - Number(left.confidence_score || 0);
+        return numberValue(left[state.metric]) - numberValue(right[state.metric]);
+      }});
+      records = records.slice(0, Number(state.limit));
+      const board = byId('board');
+      if (!records.length) {{
+        board.innerHTML = '<section class="empty"><div><h2>暂无命中记录</h2><p>换一个模型、分组或搜索词试试。</p></div></section>';
+        return;
+      }}
+      board.innerHTML = records.map((record, index) => {{
+        const warnings = (record.warnings || []).length ? record.warnings.map(tagHtml).join('') : tagHtml('');
+        const reasons = (record.cheap_reasons || []).length ? record.cheap_reasons.map((item) => `<span class="tag warn">${{escapeHtml(item)}}</span>`).join('') : '<span class="tag ok">常规价格</span>';
+        return `<article class="card ${{index === 0 ? 'prime' : ''}}" style="--delay:${{Math.min(index * 35, 420)}}ms">
+          <header class="card-head">
+            <div><p class="rank">${{index === 0 ? 'Prime' : `No.${{index + 1}}`}}</p><h2>${{escapeHtml(record.station_name)}}</h2></div>
+            <div class="price">${{escapeHtml(record[state.metric] || record.summary_rmb_per_m || '-')}}/M</div>
+          </header>
+          <div class="meta">
+            <span><b>官网</b>${{safeLink(record.website)}}</span>
+            <span><b>充值比</b>${{escapeHtml(record.recharge_ratio || '1:1')}}</span>
+            <span><b>更新时间</b>${{escapeHtml(record.updated_at || record.station_updated_at || '-')}}</span>
+          </div>
+          <p class="copy-text">${{escapeHtml(record.notes || '无备注')}}</p>
+          <div class="record-grid">
+            <div class="cell"><b>模型 / 分组</b>${{escapeHtml(record.model_name)}} / ${{escapeHtml(record.group)}}</div>
+            <div class="cell"><b>倍率</b>${{escapeHtml(record.multiplier)}}</div>
+            <div class="cell"><b>折算价格</b>${{escapeHtml(record.computed_price)}}</div>
+            <div class="cell"><b>可信度</b>${{escapeHtml(record.confidence_label)}}</div>
+            <div class="cell"><b>便宜原因</b><div class="tags">${{reasons}}</div></div>
+            <div class="cell"><b>提醒</b><div class="tags">${{warnings}}</div></div>
+            <div class="cell"><b>分组备注</b>${{escapeHtml(record.group_note || '-')}}</div>
+            <div class="cell"><b>可复制文案</b>${{escapeHtml(record.copy_text || '-')}}</div>
+          </div>
+        </article>`;
+      }}).join('');
+    }}
+    function bind() {{
+      byId('stationCount').textContent = dashboard.station_count;
+      byId('recordCount').textContent = dashboard.record_count;
+      byId('generatedAt').textContent = dashboard.generated_at;
+      fillSelect('model', dashboard.models, '全部模型');
+      fillSelect('group', dashboard.groups, '全部分组');
+      byId('metric').innerHTML = Object.entries(metricLabels).map(([value, label]) => `<option value="${{value}}">${{label}}</option>`).join('');
+      ['model', 'group', 'metric', 'limit'].forEach((id) => byId(id).addEventListener('change', (event) => {{ state[id] = event.target.value; render(); }}));
+      byId('search').addEventListener('input', (event) => {{ state.search = event.target.value; render(); }});
+      render();
+    }}
+    bind();
+  </script>
+</body>
+</html>"""
+
+
+def write_dashboard_files(registry: Dict[str, Any], payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload = payload or {}
+    html_path = Path(normalize_text(payload.get("output_file")) or DASHBOARD_HTML_PATH)
+    meta_path = html_path.with_suffix(".meta.json") if html_path != DASHBOARD_HTML_PATH else DASHBOARD_META_PATH
+    data = build_dashboard_data(registry)
+    html_text = render_dashboard_html(data, payload)
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    html_path.write_text(html_text, encoding="utf-8")
+    meta = {
+        "generated_at": data.get("generated_at"),
+        "html_file": str(html_path),
+        "station_count": data.get("station_count"),
+        "record_count": data.get("record_count"),
+    }
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "html_file": str(html_path),
+        "meta_file": str(meta_path),
+        "generated_at": data.get("generated_at"),
+        "station_count": data.get("station_count"),
+        "record_count": data.get("record_count"),
+    }
+
+
+def dashboard_html_status(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    html_path = Path(normalize_text(payload.get("output_file")) or DASHBOARD_HTML_PATH)
+    if not html_path.exists() or normalize_bool(payload.get("refresh")):
+        dashboard = write_dashboard_files(registry, payload)
+        dashboard["refreshed"] = True
+        return dashboard
+    result = {
+        "html_file": str(html_path),
+        "exists": True,
+        "refreshed": False,
+    }
+    meta_path = html_path.with_suffix(".meta.json") if html_path != DASHBOARD_HTML_PATH else DASHBOARD_META_PATH
+    if meta_path.exists():
+        try:
+            result["meta"] = load_json_file(str(meta_path))
+        except Exception:
+            result["meta_error"] = "缓存元数据无法读取"
+    return result
+
+
+def refresh_dashboard_after_write(registry: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if result.pop("_skip_dashboard_refresh", False):
+        return result
+    if result.get("needs_confirmation"):
+        return result
+    try:
+        result["dashboard"] = write_dashboard_files(registry, {})
+    except Exception as error:
+        result["dashboard_error"] = str(error)
     return result
 
 
@@ -2616,6 +3034,8 @@ def main() -> None:
             "rank",
             "rank-stations-md",
             "rank-stations-html",
+            "dashboard-html",
+            "refresh-dashboard-html",
             "list",
             "leaderboard",
             "update-station",
@@ -2645,6 +3065,10 @@ def main() -> None:
         result = build_rank_station_markdown(registry, payload)
     elif args.command == "rank-stations-html":
         result = build_rank_station_html(registry, payload)
+    elif args.command == "dashboard-html":
+        result = dashboard_html_status(registry, payload)
+    elif args.command == "refresh-dashboard-html":
+        result = write_dashboard_files(registry, payload)
     elif args.command == "leaderboard":
         result = build_leaderboard_copy(rank_records(registry, payload))
     elif args.command == "update-station":

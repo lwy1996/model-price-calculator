@@ -509,14 +509,21 @@ python "<skill_dir>/scripts/calc_model_price.py" --json "<json-string>"
 `scripts/site_price_registry.py stations-md --json-file <payload>`
 
 如果用户明确要求以 HTML、网页、页面展示或可视化页面形式查看站点列表或排行，运行：
-- 排行页面：`scripts/site_price_registry.py rank-stations-html --json-file <payload>`
-- 全部站点页面：`scripts/site_price_registry.py stations-html --json-file <payload>`
+- 优先直接展示缓存仪表盘：`scripts/site_price_registry.py dashboard-html --json-file <payload>`
+- 若用户明确要求刷新、重建、更新 HTML 缓存，运行：`scripts/site_price_registry.py refresh-dashboard-html --json-file <payload>`
+- 若用户明确要求导出一次性排行 HTML，才运行：`scripts/site_price_registry.py rank-stations-html --json-file <payload>`
+- 若用户明确要求导出一次性全部站点 HTML，才运行：`scripts/site_price_registry.py stations-html --json-file <payload>`
 
 HTML 展示规则：
 - 未明确要求 HTML 时，继续使用 `rank-stations-md` 或 `stations-md`，不要改变默认 Markdown 输出习惯
-- HTML 命令返回完整单文件页面源码字段 `html`
+- 用户要求 HTML 展示时，默认使用已预生成的 `runtime/site-price-dashboard.html` 缓存页面，避免每次现算现拼 HTML
+- 如果缓存页面不存在，`dashboard-html` 会自动生成一次；之后再次展示只返回已有页面路径
+- 每次执行 `upsert`、`update-station`、`patch-record`、批量入库或草稿提交这类改写价格库动作后，脚本会自动刷新缓存仪表盘
+- 缓存仪表盘是包含全量站点记录的单文件页面，打开后在浏览器本地完成模型、分组、搜索、排序和 TopN 切换
+- payload 可传 `output_file` 指定缓存或导出路径；不传时缓存仪表盘默认写入 `runtime/site-price-dashboard.html`
+- 回复用户时优先给可打开的 HTML 文件链接；不要默认展示完整 `html` 源码
+- 只有用户明确要求“看源码”“返回 HTML 源文本”时，才展示命令返回的完整单文件页面源码字段 `html`
 - payload 可传 `title` 自定义页面标题，`theme` 可选 `dark` 或 `light`
-- payload 可传 `output_file` 写入本地 HTML 文件；不传时只在 JSON 中返回 `html`
 - HTML 页面只用于展示，不负责修改、入库或在线刷新价格库
 - HTML 页面仍必须复用现有排行、筛选、可信度、过期提醒和异常低价口径，不另起一套排序逻辑
 

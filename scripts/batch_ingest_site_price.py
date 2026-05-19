@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from site_price_registry import build_station_snapshot, load_registry, upsert_record
+from site_price_registry import build_station_snapshot, load_registry, upsert_record, write_dashboard_files
 
 
 SECTION_KEYWORDS = {"站点名称", "官网", "倍率", "备注", "充值比", "分组备注"}
@@ -330,13 +330,16 @@ def ingest_batch(text: str) -> Dict[str, Any]:
     registry = load_registry()
     results = []
     for entry in parsed["entries"]:
+        entry["_skip_dashboard_refresh"] = True
         results.append(upsert_record(registry, entry))
     station_snapshot = build_station_snapshot(registry, results[-1]["station"]) if results else None
+    dashboard = write_dashboard_files(registry, {}) if results else None
     return {
         "station": parsed["station"],
         "count": len(results),
         "results": results,
         "station_snapshot": station_snapshot,
+        "dashboard": dashboard,
     }
 
 
