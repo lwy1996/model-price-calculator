@@ -540,6 +540,23 @@
       "notes": "",
       "created_at": "2026-05-19T08:27:33+00:00",
       "updated_at": "2026-05-19T08:27:33+00:00"
+    },
+    {
+      "station_id": "米醋api",
+      "name": "米醋API",
+      "aliases": [
+        "米醋API",
+        "https://www.micuapi.ai"
+      ],
+      "website": "https://www.micuapi.ai",
+      "api_base_url": "",
+      "group_multipliers": {
+        "vip_2": 0.35
+      },
+      "is_test_data": false,
+      "notes": "",
+      "created_at": "2026-05-19T08:31:59+00:00",
+      "updated_at": "2026-05-19T08:31:59+00:00"
     }
   ],
   "price_records": [
@@ -7705,6 +7722,124 @@
       },
       "updated_at": "2026-05-19T08:27:33+00:00",
       "created_at": "2026-05-19T08:27:33+00:00"
+    },
+    {
+      "record_id": "米醋api::gpt-5-4::vip-2",
+      "station_id": "米醋api",
+      "model_name": "gpt-5.4",
+      "group": "vip_2",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥2.5/1M Tokens",
+      "output_price": "¥15/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.2514285714285714285714285714/1M Tokens",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.35,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "vip_2",
+        "multiplier": "0.3500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-vip_2-输入$2.5000-输出$15.0000-缓存读$0.2514",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.8750",
+            "rmb_per_m": "0.8750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "5.2500",
+            "rmb_per_m": "5.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2514",
+            "multiplied_usd_per_m": "0.0880",
+            "rmb_per_m": "0.0880"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7514",
+          "multiplied_usd_per_m": "6.2130",
+          "rmb_per_m": "6.2130"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1006",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:31:59+00:00",
+      "created_at": "2026-05-19T08:31:59+00:00"
+    },
+    {
+      "record_id": "米醋api::gpt-5-5::vip-2",
+      "station_id": "米醋api",
+      "model_name": "gpt-5.5",
+      "group": "vip_2",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥5/1M Tokens",
+      "output_price": "¥30/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.5/1M Tokens",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.35,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "vip_2",
+        "multiplier": "0.3500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-vip_2-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.7500",
+            "rmb_per_m": "1.7500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "10.5000",
+            "rmb_per_m": "10.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.1750",
+            "rmb_per_m": "0.1750"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "12.4250",
+          "rmb_per_m": "12.4250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:31:59+00:00",
+      "created_at": "2026-05-19T08:31:59+00:00"
     }
   ]
 }
