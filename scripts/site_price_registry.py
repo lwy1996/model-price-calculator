@@ -482,6 +482,290 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
     }
 
 
+def normalize_model_alias(value: Any) -> str:
+    text = normalize_text(value).lower()
+    if not text:
+        return ""
+
+    compact = re.sub(r"[\s_\-]+", "", text)
+    compact = compact.replace("gpt", "")
+    compact = compact.replace("模型", "")
+    compact = compact.strip()
+
+    if "mini" in compact and re.search(r"5[.\-]?4|54", compact):
+        return "gpt-5.4-mini"
+    if re.search(r"5[.\-]?5|55", compact):
+        return "gpt-5.5"
+    if re.search(r"5[.\-]?4|54", compact):
+        return "gpt-5.4"
+    return normalize_text(value)
+
+
+def extract_quick_limit(text: str, default: int = 10) -> int:
+    patterns = [
+        r"(?:top|Top|TOP)\s*(\d+)",
+        r"前\s*(\d+)",
+        r"最便宜\D{0,8}(\d+)\s*(?:个|家|条|站点)?",
+        r"(\d+)\s*(?:个|家|条)\s*(?:站点)?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        try:
+            value = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return default
+
+
+def extract_quick_model(text: str) -> str:
+    lowered = text.lower()
+    candidates = [
+        r"gpt[\s\-_]*5[.\-]?4[\s\-_]*mini",
+        r"5[.\-]?4[\s\-_]*mini",
+        r"gpt[\s\-_]*5[.\-]?5",
+        r"gpt[\s\-_]*5[.\-]?4",
+        r"\b5[.\-]?5\b",
+        r"\b5[.\-]?4\b",
+        r"\b55\b",
+        r"\b54\b",
+        r"mini",
+    ]
+    for pattern in candidates:
+        match = re.search(pattern, lowered)
+        if match:
+            return normalize_model_alias(match.group(0))
+    return ""
+
+
+def extract_quick_metric(text: str) -> str:
+    if re.search(r"缓存写|缓存创建|cache\s*write", text, re.I):
+        return "cache_write_rmb_per_m"
+    if re.search(r"缓存|cache", text, re.I):
+        return "cache_read_rmb_per_m"
+    if re.search(r"输出|补全|output|completion", text, re.I):
+        return "output_rmb_per_m"
+    if re.search(r"输入|input|prompt", text, re.I):
+        return "input_rmb_per_m"
+    return "summary_rmb_per_m"
+
+
+def extract_quick_group(text: str) -> str:
+    explicit = re.search(r"(?:分组|group)\s*[:：]?\s*([A-Za-z0-9_\-\u4e00-\u9fff]+)", text, re.I)
+    if explicit:
+        return explicit.group(1)
+
+    known_groups = [
+        "default",
+        "free",
+        "plus",
+        "pro",
+        "vip",
+        "svip",
+        "codex",
+        "code-plus",
+        "code-pro",
+        "限时特价",
+        "默认",
+    ]
+    lowered = text.lower()
+    for group in known_groups:
+        if group.lower() in lowered:
+            return group
+    return ""
+
+
+def is_quick_rank_query(text: str, payload: Dict[str, Any]) -> bool:
+    if payload.get("mode") == "rank":
+        return True
+    if payload.get("model_name") or payload.get("模型名称"):
+        return True
+    has_rank_word = bool(re.search(r"最便宜|排行|排名|top|前\s*\d+|便宜|最低", text, re.I))
+    return has_rank_word and bool(extract_quick_model(text))
+
+
+def build_quick_rank_query(payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = normalize_text(payload.get("query") or payload.get("q") or payload.get("keyword"))
+    model_name = normalize_model_alias(payload.get("model_name") or payload.get("模型名称")) or extract_quick_model(text)
+    group = normalize_text(payload.get("group") or payload.get("分组")) or extract_quick_group(text)
+    metric = normalize_text(payload.get("sort_by") or payload.get("metric")) or extract_quick_metric(text)
+    direction = normalize_text(payload.get("direction") or "asc").lower()
+    limit = payload.get("limit") or extract_quick_limit(text, default=10)
+    return {
+        "model_name": model_name,
+        "group": group,
+        "sort_by": metric,
+        "direction": direction,
+        "limit": limit,
+    }
+
+
+def clean_quick_search_text(text: str) -> str:
+    cleaned = normalize_text(text)
+    cleaned = re.sub(r"^(?:查|搜索|检索|找|查看|列出|帮我查|帮我找)\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:站点|中转站|官网|备注|分组备注|关键词)\s*[:：]?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*(?:的)?(?:站点|中转站|列表)$", "", cleaned, flags=re.I)
+    return cleaned.strip()
+
+
+def station_search_fields(station: Dict[str, Any], records: List[Dict[str, Any]]) -> List[Tuple[str, str, int]]:
+    fields: List[Tuple[str, str, int]] = [
+        ("站点ID", normalize_text(station.get("station_id")), 5),
+        ("站点名称", normalize_text(station.get("name")), 8),
+        ("官网", normalize_text(station.get("website")), 6),
+        ("API", normalize_text(station.get("api_base_url") or station.get("api_url")), 5),
+        ("充值比", normalize_text(station.get("recharge_ratio")), 2),
+        ("备注", normalize_text(station.get("notes")), 4),
+    ]
+    for alias in station.get("aliases") or []:
+        fields.append(("别名", normalize_text(alias), 7))
+    for record in records:
+        fields.extend(
+            [
+                ("模型", normalize_text(record.get("model_name")), 4),
+                ("分组", normalize_text(record.get("group")), 4),
+                ("分组备注", normalize_text(record.get("group_note")), 5),
+            ]
+        )
+        for tag in ensure_list(record.get("tags")):
+            fields.append(("标签", tag, 3))
+    return fields
+
+
+def search_stations_full_text(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    raw_keyword = normalize_text(query.get("keyword") or query.get("query") or query.get("q"))
+    keyword = clean_quick_search_text(raw_keyword)
+    limit = int(query.get("limit") or 20)
+    if not keyword:
+        return {
+            "count": 0,
+            "items": [],
+            "station_ids": [],
+            "keyword": keyword,
+        }
+
+    normalized_keyword = normalize_key(keyword)
+    lowered_keyword = keyword.lower()
+    records_by_station: Dict[str, List[Dict[str, Any]]] = {}
+    for record in registry.get("price_records", []):
+        records_by_station.setdefault(normalize_text(record.get("station_id")), []).append(record)
+
+    items = []
+    for station in registry.get("stations", []):
+        station_id = normalize_text(station.get("station_id"))
+        records = records_by_station.get(station_id, [])
+        score = 0
+        reasons = []
+        seen_reasons = set()
+        for label, value, weight in station_search_fields(station, records):
+            if not value:
+                continue
+            normalized_value = normalize_key(value)
+            lowered_value = value.lower()
+            matched = lowered_keyword in lowered_value
+            if not matched and normalized_keyword:
+                matched = normalized_keyword in normalized_value
+            if not matched:
+                continue
+            score += weight
+            reason = f"{label} 命中「{keyword}」"
+            if reason not in seen_reasons:
+                seen_reasons.add(reason)
+                reasons.append(reason)
+        if score <= 0:
+            continue
+        items.append(
+            {
+                "station_id": station_id,
+                "station_name": station.get("name") or station_id,
+                "website": station.get("website"),
+                "recharge_ratio": resolve_station_summary_recharge_ratio(station, {"records": records}),
+                "notes": station.get("notes"),
+                "score": score,
+                "reasons": reasons[:3],
+                "record_count": len(records),
+            }
+        )
+
+    items.sort(key=lambda item: (-item["score"], normalize_text(item.get("station_name")).lower()))
+    if limit > 0:
+        items = items[:limit]
+    return {
+        "count": len(items),
+        "items": items,
+        "station_ids": [item["station_id"] for item in items],
+        "keyword": keyword,
+    }
+
+
+def build_compact_search_markdown(registry: Dict[str, Any], search_result: Dict[str, Any]) -> str:
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    lines = []
+    for index, item in enumerate(search_result.get("items", []), start=1):
+        station = stations_by_id.get(item.get("station_id"), {})
+        summary = station_record_summary(registry, item.get("station_id"))
+        best_record_text = "暂无价格记录"
+        best_items = []
+        for record in summary.get("records", []):
+            rank_item = build_rank_item(registry, record, "summary_rmb_per_m")
+            if rank_item:
+                best_items.append(rank_item)
+        if best_items:
+            best_items.sort(key=lambda rank_item: to_decimal(rank_item.get("value")) or 0)
+            best = best_items[0]
+            best_record_text = f"{best.get('model_name')} / {best.get('group')} 综合价 {best.get('value')}/M"
+        reasons = "；".join(item.get("reasons") or []) or "关键词命中"
+        lines.append(f"{index}. {station.get('name') or item.get('station_id')}")
+        lines.append(f"官网：{normalize_text(station.get('website')) or '未记录'}")
+        lines.append(f"充值比：{resolve_station_summary_recharge_ratio(station, summary)}")
+        lines.append(f"匹配：{reasons}")
+        lines.append(f"最优摘要：{best_record_text}")
+        lines.append("")
+    return "\n".join(lines).strip() or "暂无站点"
+
+
+def quick_query(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = normalize_text(payload.get("query") or payload.get("q") or payload.get("keyword"))
+    view = normalize_text(payload.get("view") or payload.get("display") or "detail").lower()
+    if is_quick_rank_query(text, payload):
+        rank_query = build_quick_rank_query(payload)
+        result = build_rank_station_markdown(registry, rank_query)
+        result.update(
+            {
+                "mode": "rank",
+                "query": text,
+                "parsed": rank_query,
+            }
+        )
+        return result
+
+    search_payload = {
+        "query": text,
+        "keyword": payload.get("keyword") or text,
+        "limit": payload.get("limit") or extract_quick_limit(text, default=20),
+    }
+    search_result = search_stations_full_text(registry, search_payload)
+    if view in {"compact", "简洁", "摘要"}:
+        text_output = build_compact_search_markdown(registry, search_result)
+    else:
+        text_output = build_station_markdown(registry, {"station_ids": search_result.get("station_ids", [])}).get("text", "")
+    return {
+        "mode": "search",
+        "query": text,
+        "keyword": search_result.get("keyword"),
+        "count": search_result.get("count", 0),
+        "items": search_result.get("items", []),
+        "station_ids": search_result.get("station_ids", []),
+        "text": text_output or "暂无站点",
+    }
+
+
 def search_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     station, score = find_station(registry, query)
     if station is None or score == 0:
@@ -854,8 +1138,19 @@ def append_station_markdown_block(
 
 def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     keyword = normalize_text(query.get("keyword"))
+    station_ids = [
+        normalize_text(station_id)
+        for station_id in ensure_list(query.get("station_ids"))
+        if normalize_text(station_id)
+    ]
     stations = registry.get("stations", [])
-    if keyword:
+    if station_ids:
+        stations_by_id = {
+            normalize_text(station.get("station_id")): station
+            for station in stations
+        }
+        stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+    elif keyword:
         lowered = keyword.lower()
         filtered = []
         for station in stations:
@@ -863,13 +1158,17 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
                 station.get("station_id"),
                 station.get("name"),
                 station.get("website"),
+                station.get("api_base_url"),
+                station.get("api_url"),
+                station.get("notes"),
                 *(station.get("aliases") or []),
             ]
             if any(lowered in normalize_text(item).lower() for item in haystacks):
                 filtered.append(station)
         stations = filtered
 
-    stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
+    if not station_ids:
+        stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
     lines = []
 
     for index, station in enumerate(stations, start=1):
@@ -1007,6 +1306,7 @@ def main() -> None:
         "command",
         choices=[
             "search",
+            "quick",
             "upsert",
             "rank",
             "rank-stations-md",
@@ -1027,6 +1327,8 @@ def main() -> None:
 
     if args.command == "search":
         result = search_registry(registry, payload)
+    elif args.command == "quick":
+        result = quick_query(registry, payload)
     elif args.command == "upsert":
         result = upsert_record(registry, payload)
     elif args.command == "rank":
