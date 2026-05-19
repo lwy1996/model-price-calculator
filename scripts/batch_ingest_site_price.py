@@ -69,21 +69,54 @@ def parse_group_note(text: str) -> str:
     return match.group(1).strip()
 
 
-def parse_group_multipliers(text: str) -> Dict[str, float]:
+def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
     match = re.search(r"倍率[:：]\s*(.+)", text, re.I)
     if not match:
         return {}
 
     line = match.group(1).strip()
-    results: Dict[str, float] = {}
-    for group, value in re.findall(r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)", line, re.I):
-        results[group.lower()] = float(value)
+    results: Dict[str, Dict[str, Any]] = {}
+    pattern = re.compile(
+        r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?",
+        re.I,
+    )
+    for group, value, note in pattern.findall(line):
+        results[group.lower()] = {
+            "multiplier": float(value),
+            "group_note": normalize_text(note),
+        }
 
     if not results:
         numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", line)
         if numeric:
-            results["default"] = float(numeric.group(1))
+            results["default"] = {
+                "multiplier": float(numeric.group(1)),
+                "group_note": "",
+            }
     return results
+
+
+def parse_group_multipliers(text: str) -> Dict[str, float]:
+    return {
+        group: config.get("multiplier", 1.0)
+        for group, config in parse_group_configs(text).items()
+    }
+
+
+def parse_group_notes(text: str) -> Dict[str, str]:
+    configs = parse_group_configs(text)
+    if configs:
+        return {
+            group: normalize_text(config.get("group_note"))
+            for group, config in configs.items()
+            if normalize_text(config.get("group_note"))
+        }
+
+    note = parse_group_note(text)
+    scoped_group = detect_declared_group_scope(text)
+    if note and scoped_group:
+        return {scoped_group: note}
+    return {}
 
 
 def parse_recharge_ratio(text: str) -> str:
@@ -188,6 +221,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
     preamble, sections = split_model_sections(text)
     global_context = {
         "group_multipliers": parse_group_multipliers(preamble),
+        "group_notes": parse_group_notes(preamble),
         "recharge_ratio": parse_recharge_ratio(text),
         "post_multiplier_pricing": is_post_multiplier_pricing(preamble),
         "scoped_group": detect_declared_group_scope(preamble),
@@ -202,6 +236,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         model_data: Dict[str, Any] = {
             "model_name": section["model_name"],
             "group_multipliers": parse_group_multipliers(body) or global_context["group_multipliers"],
+            "group_notes": parse_group_notes(body) or global_context["group_notes"],
             "recharge_ratio": parse_recharge_ratio(body) if re.search(r"充值比[:：]", body, re.I) else global_context["recharge_ratio"],
             "post_multiplier_pricing": is_post_multiplier_pricing(body) or global_context["post_multiplier_pricing"],
             "scoped_group": detect_declared_group_scope(body) or section.get("scoped_group") or global_context["scoped_group"],
@@ -243,6 +278,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
     entries = []
     for model in model_blocks:
         groups = model.get("group_multipliers") or station.get("group_multipliers") or {"default": 1.0}
+        group_notes = model.get("group_notes") or global_context.get("group_notes") or {}
         source_group = resolve_source_group(model, groups)
         target_groups = groups
         if source_group:
@@ -264,7 +300,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
                 "group": group,
                 "multiplier": multiplier,
                 "recharge_ratio": model.get("recharge_ratio") or global_context.get("recharge_ratio") or "1:1",
-                "group_note": model.get("group_note") or "",
+                "group_note": group_notes.get(group) or model.get("group_note") or "",
             }
             pricing.update(base_prices)
             entries.append(
