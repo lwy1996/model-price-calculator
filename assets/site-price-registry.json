@@ -504,6 +504,24 @@
       "notes": "Fishai 交流群-群友-闲人中转站",
       "created_at": "2026-05-19T08:08:45+00:00",
       "updated_at": "2026-05-19T08:08:45+00:00"
+    },
+    {
+      "station_id": "nan",
+      "name": "NAN",
+      "aliases": [
+        "NAN",
+        "https://nan.meta-api.vip"
+      ],
+      "website": "https://nan.meta-api.vip",
+      "api_base_url": "",
+      "group_multipliers": {
+        "vip": 1.25,
+        "svip": 1.25
+      },
+      "is_test_data": false,
+      "notes": "已添加QQ群-Ai交流群",
+      "created_at": "2026-05-19T08:15:39+00:00",
+      "updated_at": "2026-05-19T08:22:31+00:00"
     }
   ],
   "price_records": [
@@ -7197,6 +7215,242 @@
       },
       "updated_at": "2026-05-19T08:08:45+00:00",
       "created_at": "2026-05-19T08:08:45+00:00"
+    },
+    {
+      "record_id": "nan::gpt-5-4::vip",
+      "station_id": "nan",
+      "model_name": "gpt-5.4",
+      "group": "vip",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$8/1M Tokens",
+      "output_price": "$48/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.8/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "gpt-plus号池，gpt-5.5的性能更高",
+      "multiplier": 1.25,
+      "recharge_ratio": "1:5",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "vip",
+        "multiplier": "1.2500",
+        "recharge_ratio": {
+          "display": "1:5",
+          "unit_rate": "0.2000"
+        },
+        "copy_text": "gpt-5.4-vip-输入$8.0000-输出$48.0000-缓存读$0.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "8.0000",
+            "multiplied_usd_per_m": "10.0000",
+            "rmb_per_m": "2.0000"
+          },
+          "output": {
+            "usd_per_m": "48.0000",
+            "multiplied_usd_per_m": "60.0000",
+            "rmb_per_m": "12.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.8000",
+            "multiplied_usd_per_m": "1.0000",
+            "rmb_per_m": "0.2000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "56.8000",
+          "multiplied_usd_per_m": "71.0000",
+          "rmb_per_m": "14.2000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:22:31+00:00",
+      "created_at": "2026-05-19T08:15:39+00:00"
+    },
+    {
+      "record_id": "nan::gpt-5-5::vip",
+      "station_id": "nan",
+      "model_name": "gpt-5.5",
+      "group": "vip",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$16/1M Tokens",
+      "output_price": "$96/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$1.6/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "gpt-plus号池，gpt-5.5的性能更高",
+      "multiplier": 1.25,
+      "recharge_ratio": "1:5",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "vip",
+        "multiplier": "1.2500",
+        "recharge_ratio": {
+          "display": "1:5",
+          "unit_rate": "0.2000"
+        },
+        "copy_text": "gpt-5.5-vip-输入$16.0000-输出$96.0000-缓存读$1.6000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "16.0000",
+            "multiplied_usd_per_m": "20.0000",
+            "rmb_per_m": "4.0000"
+          },
+          "output": {
+            "usd_per_m": "96.0000",
+            "multiplied_usd_per_m": "120.0000",
+            "rmb_per_m": "24.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "1.6000",
+            "multiplied_usd_per_m": "2.0000",
+            "rmb_per_m": "0.4000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "113.6000",
+          "multiplied_usd_per_m": "142.0000",
+          "rmb_per_m": "28.4000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:22:31+00:00",
+      "created_at": "2026-05-19T08:15:39+00:00"
+    },
+    {
+      "record_id": "nan::gpt-5-4::svip",
+      "station_id": "nan",
+      "model_name": "gpt-5.4",
+      "group": "svip",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$8/1M Tokens",
+      "output_price": "$48/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.8/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "gpt-pro号池，可使用gpt-5.5，gpt-5.3-codex-spark，超满血性能",
+      "multiplier": 1.25,
+      "recharge_ratio": "1:5",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "svip",
+        "multiplier": "1.2500",
+        "recharge_ratio": {
+          "display": "1:5",
+          "unit_rate": "0.2000"
+        },
+        "copy_text": "gpt-5.4-svip-输入$8.0000-输出$48.0000-缓存读$0.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "8.0000",
+            "multiplied_usd_per_m": "10.0000",
+            "rmb_per_m": "2.0000"
+          },
+          "output": {
+            "usd_per_m": "48.0000",
+            "multiplied_usd_per_m": "60.0000",
+            "rmb_per_m": "12.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.8000",
+            "multiplied_usd_per_m": "1.0000",
+            "rmb_per_m": "0.2000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "56.8000",
+          "multiplied_usd_per_m": "71.0000",
+          "rmb_per_m": "14.2000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:22:31+00:00",
+      "created_at": "2026-05-19T08:15:39+00:00"
+    },
+    {
+      "record_id": "nan::gpt-5-5::svip",
+      "station_id": "nan",
+      "model_name": "gpt-5.5",
+      "group": "svip",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$16/1M Tokens",
+      "output_price": "$96/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$1.6/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "gpt-pro号池，可使用gpt-5.5，gpt-5.3-codex-spark，超满血性能",
+      "multiplier": 1.25,
+      "recharge_ratio": "1:5",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "svip",
+        "multiplier": "1.2500",
+        "recharge_ratio": {
+          "display": "1:5",
+          "unit_rate": "0.2000"
+        },
+        "copy_text": "gpt-5.5-svip-输入$16.0000-输出$96.0000-缓存读$1.6000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "16.0000",
+            "multiplied_usd_per_m": "20.0000",
+            "rmb_per_m": "4.0000"
+          },
+          "output": {
+            "usd_per_m": "96.0000",
+            "multiplied_usd_per_m": "120.0000",
+            "rmb_per_m": "24.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "1.6000",
+            "multiplied_usd_per_m": "2.0000",
+            "rmb_per_m": "0.4000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "113.6000",
+          "multiplied_usd_per_m": "142.0000",
+          "rmb_per_m": "28.4000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:22:31+00:00",
+      "created_at": "2026-05-19T08:15:39+00:00"
     }
   ]
 }
