@@ -98,7 +98,7 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
             extracted.pop("model_name", None)
         patch["pricing"] = merge_non_empty(patch.get("pricing") or {}, extracted)
 
-    for key in ("model_name", "group", "multiplier", "recharge_ratio", "sale_price", "notes"):
+    for key in ("model_name", "group", "group_note", "multiplier", "recharge_ratio", "sale_price", "notes"):
         if payload.get(key) not in (None, ""):
             patch[key] = payload[key]
 
@@ -108,6 +108,9 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
     if patch.get("group"):
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["group"] = patch["group"]
+    if patch.get("group_note"):
+        patch["pricing"] = patch.get("pricing") or {}
+        patch["pricing"]["group_note"] = patch["group_note"]
     if patch.get("multiplier") is not None:
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["multiplier"] = patch["multiplier"]

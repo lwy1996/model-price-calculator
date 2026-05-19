@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple
 from site_price_registry import build_station_snapshot, load_registry, upsert_record
 
 
-SECTION_KEYWORDS = {"站点名称", "官网", "API", "倍率", "备注", "充值比"}
+SECTION_KEYWORDS = {"站点名称", "官网", "API", "倍率", "备注", "充值比", "分组备注"}
 
 
 def normalize_text(value: Any) -> str:
@@ -60,6 +60,13 @@ def parse_station_info(text: str) -> Dict[str, Any]:
     if station.get("name"):
         station["alias"] = station["name"]
     return station
+
+
+def parse_group_note(text: str) -> str:
+    match = re.search(r"分组备注[:：]\s*(.+)", text, re.I)
+    if not match:
+        return ""
+    return match.group(1).strip()
 
 
 def parse_group_multipliers(text: str) -> Dict[str, float]:
@@ -177,6 +184,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         "recharge_ratio": parse_recharge_ratio(preamble),
         "post_multiplier_pricing": is_post_multiplier_pricing(preamble),
         "scoped_group": detect_declared_group_scope(preamble),
+        "group_note": parse_group_note(preamble),
         "price_fields": parse_price_fields(preamble),
     }
 
@@ -190,6 +198,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
             "recharge_ratio": parse_recharge_ratio(body) if re.search(r"充值比[:：]", body, re.I) else global_context["recharge_ratio"],
             "post_multiplier_pricing": is_post_multiplier_pricing(body) or global_context["post_multiplier_pricing"],
             "scoped_group": detect_declared_group_scope(body) or global_context["scoped_group"],
+            "group_note": parse_group_note(body) or global_context["group_note"],
         }
         model_data.update(price_fields)
         if any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price")):
@@ -245,6 +254,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
                 "group": group,
                 "multiplier": multiplier,
                 "recharge_ratio": model.get("recharge_ratio") or global_context.get("recharge_ratio") or "1:1",
+                "group_note": model.get("group_note") or "",
             }
             pricing.update(base_prices)
             entries.append(

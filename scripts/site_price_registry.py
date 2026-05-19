@@ -57,7 +57,8 @@ def normalize_key(value: Any) -> str:
     text = normalize_text(value).lower()
     text = re.sub(r"^https?://", "", text)
     text = text.rstrip("/")
-    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"[^\w]+", "-", text, flags=re.UNICODE)
+    text = text.replace("_", "-")
     return text.strip("-")
 
 
@@ -508,6 +509,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
             or pricing_payload.get("cache_write_price")
             or pricing_payload.get("缓存创建价格")
         ),
+        "group_note": pricing_payload.get("group_note") or pricing_payload.get("分组备注"),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
         "recharge_ratio": pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比") or "1:1",
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
@@ -560,6 +562,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_price": ["cache_price", "缓存价格"],
         "cache_read_price": ["cache_read_price", "缓存读取价格"],
         "cache_write_price": ["cache_write_price", "缓存创建价格"],
+        "group_note": ["group_note", "分组备注"],
         "multiplier": ["multiplier", "倍率"],
         "recharge_ratio": ["recharge_ratio", "充值比"],
         "sale_price": ["sale_price", "售价", "站点售价"],
@@ -573,6 +576,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_price": record.get("cache_price"),
         "cache_read_price": record.get("cache_read_price"),
         "cache_write_price": record.get("cache_write_price"),
+        "group_note": record.get("group_note"),
         "multiplier": record.get("multiplier"),
         "recharge_ratio": record.get("recharge_ratio"),
         "sale_price": record.get("sale_price"),
@@ -595,6 +599,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "cache_price": pricing_payload.get("cache_price"),
             "cache_read_price": pricing_payload.get("cache_read_price"),
             "cache_write_price": pricing_payload.get("cache_write_price"),
+            "group_note": pricing_payload.get("group_note"),
             "multiplier": pricing_payload.get("multiplier"),
             "recharge_ratio": pricing_payload.get("recharge_ratio"),
             "sale_price": pricing_payload.get("sale_price"),
@@ -773,18 +778,19 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
         lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
         lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
         lines.append("")
-        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---:|---|---:|")
+        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
+        lines.append("|---|---|---|---:|---|---:|")
         for record in summary["records"]:
             computed = record.get("computed", {})
             multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
+            group_note = normalize_text(record.get("group_note")) or "-"
             summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
             lines.append(
-                f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
+                f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
                 f"{build_computed_price_text(record)} | `{summary_cost}` |"
             )
         if not summary["records"]:
-            lines.append("| - | - | - | 暂无价格记录 | - |")
+            lines.append("| - | - | - | - | 暂无价格记录 | - |")
         lines.append("")
 
     return {

@@ -44,6 +44,8 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
         raw["recharge_ratio"] = args.recharge_ratio
     if args.sale_price:
         raw["sale_price"] = args.sale_price
+    if args.group_note:
+        raw["group_note"] = args.group_note
     return raw
 
 
@@ -64,6 +66,8 @@ def build_upsert_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
         pricing["recharge_ratio"] = raw["recharge_ratio"]
     if raw.get("sale_price"):
         pricing["sale_price"] = raw["sale_price"]
+    if raw.get("group_note"):
+        pricing["group_note"] = raw["group_note"]
 
     return {
         "station": station,
@@ -87,6 +91,7 @@ def main() -> None:
     parser.add_argument("--multiplier", type=float, help="Multiplier override")
     parser.add_argument("--recharge-ratio", help="Recharge ratio override")
     parser.add_argument("--sale-price", help="Sale price override")
+    parser.add_argument("--group-note", help="Per-group note override")
     parser.add_argument("--notes", help="Station notes")
     args = parser.parse_args()
 
