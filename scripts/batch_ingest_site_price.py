@@ -87,7 +87,7 @@ def parse_group_multipliers(text: str) -> Dict[str, float]:
 
 
 def parse_recharge_ratio(text: str) -> str:
-    match = re.search(r"充值比[:：]\s*([0-9.]+\s*:\s*[0-9.]+)", text, re.I)
+    match = re.search(r"充值比(?:[:：]|为)\s*([0-9.]+\s*:\s*[0-9.]+)", text, re.I)
     if not match:
         return "1:1"
     return match.group(1).replace(" ", "")
@@ -188,7 +188,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
     preamble, sections = split_model_sections(text)
     global_context = {
         "group_multipliers": parse_group_multipliers(preamble),
-        "recharge_ratio": parse_recharge_ratio(preamble),
+        "recharge_ratio": parse_recharge_ratio(text),
         "post_multiplier_pricing": is_post_multiplier_pricing(preamble),
         "scoped_group": detect_declared_group_scope(preamble),
         "group_note": parse_group_note(preamble),
@@ -208,7 +208,10 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
             "group_note": parse_group_note(body) or global_context["group_note"],
         }
         model_data.update(price_fields)
-        if any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price")):
+        if model_data.get("model_name") and (
+            any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price"))
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]*", normalize_text(model_data.get("model_name")))
+        ):
             blocks.append(model_data)
 
     return global_context, blocks
