@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
+import html
 import json
 import re
 from copy import deepcopy
@@ -1934,6 +1935,596 @@ def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any])
     }
 
 
+def html_escape(value: Any) -> str:
+    return html.escape(normalize_text(value), quote=True)
+
+
+def html_attr(value: Any) -> str:
+    return html_escape(value)
+
+
+def safe_website_href(value: Any) -> str:
+    text = normalize_text(value)
+    if re.match(r"^https?://", text, flags=re.I):
+        return text
+    return ""
+
+
+def metric_title(metric: Any) -> str:
+    titles = {
+        "summary_rmb_per_m": "综合成本",
+        "input_rmb_per_m": "输入成本",
+        "output_rmb_per_m": "输出成本",
+        "cache_read_rmb_per_m": "缓存读取成本",
+        "cache_write_rmb_per_m": "缓存创建成本",
+        "output_input_ratio": "输出/输入比",
+        "cache_read_discount_vs_input": "缓存读取折扣",
+    }
+    return titles.get(normalize_text(metric), normalize_text(metric) or "综合成本")
+
+
+def format_filter_value(value: Any) -> str:
+    if isinstance(value, list):
+        return "、".join(normalize_text(item) for item in value if normalize_text(item)) or "无"
+    if isinstance(value, float):
+        return confidence_label(value)
+    return normalize_text(value) or "无"
+
+
+def collect_station_rows(station: Dict[str, Any], summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = []
+    for record in summary.get("records", []):
+        computed = compute(build_record_pricing_payload(station, record))
+        score, _ = record_confidence(record, station)
+        warnings = record.get("_warnings") or record_health_warnings(station, record)
+        rows.append(
+            {
+                "model_name": normalize_text(record.get("model_name")),
+                "group": normalize_text(record.get("group")),
+                "group_note": normalize_text(record.get("group_note")) or "-",
+                "multiplier": trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1"),
+                "computed_price": build_computed_price_text(record, computed),
+                "summary_cost": format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-"),
+                "cheap_reasons": record.get("_cheap_reasons") or [],
+                "confidence": confidence_label(record.get("_confidence_score") or score),
+                "warnings": warnings,
+            }
+        )
+    return rows
+
+
+def station_html_view(station: Dict[str, Any], summary: Dict[str, Any], index: int) -> Dict[str, Any]:
+    rows = collect_station_rows(station, summary)
+    return {
+        "index": index,
+        "name": normalize_text(station.get("name") or station.get("station_id")) or "未命名站点",
+        "station_id": normalize_text(station.get("station_id")),
+        "website": normalize_text(station.get("website")) or "未记录",
+        "recharge_ratio": resolve_station_summary_recharge_ratio(station, summary),
+        "notes": normalize_text(station.get("notes")) or "无",
+        "is_test": is_test_station(station),
+        "created_at": iso_to_display(station.get("created_at")),
+        "updated_at": iso_to_display(station.get("updated_at")),
+        "rows": rows,
+    }
+
+
+def collect_rank_station_html_views(
+    registry: Dict[str, Any],
+    query: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[str]]:
+    rank_result = rank_records(registry, query)
+    limit = int(query.get("limit") or 10)
+    station_ids = []
+    seen_station_ids = set()
+    rank_items_by_record_id = {
+        normalize_text(item.get("record_id")): item
+        for item in rank_result.get("items", [])
+        if normalize_text(item.get("record_id"))
+    }
+
+    for item in rank_result.get("items", []):
+        station_id = normalize_text(item.get("station_id"))
+        if not station_id or station_id in seen_station_ids:
+            continue
+        seen_station_ids.add(station_id)
+        station_ids.append(station_id)
+        if len(station_ids) >= limit:
+            break
+
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    views = []
+    for index, station_id in enumerate(station_ids, start=1):
+        station = stations_by_id.get(station_id)
+        if not station:
+            continue
+        summary = filtered_station_record_summary(
+            registry,
+            station,
+            rank_result.get("filters", {}),
+            rank_items_by_record_id,
+        )
+        views.append(station_html_view(station, summary, index))
+    return rank_result, views, station_ids
+
+
+def collect_station_html_views(registry: Dict[str, Any], query: Dict[str, Any]) -> List[Dict[str, Any]]:
+    keyword = normalize_text(query.get("keyword"))
+    station_ids = [
+        normalize_text(station_id)
+        for station_id in ensure_list(query.get("station_ids"))
+        if normalize_text(station_id)
+    ]
+    stations = registry.get("stations", [])
+    if station_ids:
+        stations_by_id = {
+            normalize_text(station.get("station_id")): station
+            for station in stations
+        }
+        stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+    elif keyword:
+        lowered = keyword.lower()
+        filtered = []
+        for station in stations:
+            haystacks = [
+                station.get("station_id"),
+                station.get("name"),
+                station.get("website"),
+                station.get("api_base_url"),
+                station.get("api_url"),
+                station.get("notes"),
+                *(station.get("aliases") or []),
+            ]
+            if any(lowered in normalize_text(item).lower() for item in haystacks):
+                filtered.append(station)
+        stations = filtered
+
+    if not station_ids:
+        stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
+
+    return [
+        station_html_view(station, station_record_summary(registry, station.get("station_id")), index)
+        for index, station in enumerate(stations, start=1)
+    ]
+
+
+def render_filter_chips(filters: Dict[str, Any]) -> str:
+    chips = [
+        ("模型", filters.get("model_name") or "全部模型"),
+        ("分组", filters.get("group") or "全部分组"),
+        ("排序", metric_title(filters.get("metric"))),
+        ("方向", "从低到高" if filters.get("direction") == "asc" else "从高到低"),
+    ]
+    if filters.get("include_terms"):
+        chips.append(("包含", filters.get("include_terms")))
+    if filters.get("exclude_terms"):
+        chips.append(("排除", filters.get("exclude_terms")))
+    if filters.get("min_confidence") is not None:
+        chips.append(("最低可信度", filters.get("min_confidence")))
+    return "".join(
+        f'<span class="chip"><b>{html_escape(label)}</b>{html_escape(format_filter_value(value))}</span>'
+        for label, value in chips
+    )
+
+
+def render_warning_tags(warnings: List[str]) -> str:
+    if not warnings:
+        return '<span class="tag tag-ok">稳定</span>'
+    tags = []
+    for warning in warnings:
+        lower = warning.lower()
+        level = "risk"
+        if "低" in warning or "过期" in warning or "异常" in warning or "low" in lower:
+            level = "danger"
+        tags.append(f'<span class="tag tag-{level}">{html_escape(warning)}</span>')
+    return "".join(tags)
+
+
+def render_station_cards(views: List[Dict[str, Any]]) -> str:
+    if not views:
+        return (
+            '<section class="empty-state">'
+            '<div class="empty-pulse"></div>'
+            '<h2>暂无命中站点</h2>'
+            '<p>换一个模型、分组或筛选条件后重新生成排行。</p>'
+            '</section>'
+        )
+
+    cards = []
+    for view in views:
+        rows = []
+        for row in view.get("rows", []):
+            reason_text = "；".join(row.get("cheap_reasons") or []) or "-"
+            rows.append(
+                "<tr>"
+                f'<td data-label="模型">{html_escape(row.get("model_name"))}</td>'
+                f'<td data-label="分组">{html_escape(row.get("group"))}</td>'
+                f'<td data-label="倍率" class="num">{html_escape(row.get("multiplier"))}</td>'
+                f'<td data-label="折算价格">{html_escape(row.get("computed_price"))}</td>'
+                f'<td data-label="综合价" class="num price">{html_escape(row.get("summary_cost"))}</td>'
+                f'<td data-label="便宜原因">{html_escape(reason_text)}</td>'
+                f'<td data-label="可信度" class="num">{html_escape(row.get("confidence"))}</td>'
+                f'<td data-label="提醒"><div class="tags">{render_warning_tags(row.get("warnings") or [])}</div></td>'
+                "</tr>"
+            )
+        if not rows:
+            rows.append(
+                '<tr><td data-label="状态" colspan="8" class="empty-row">该站点暂无价格记录</td></tr>'
+            )
+
+        website = view.get("website") or "未记录"
+        href = safe_website_href(website)
+        website_html = html_escape(website)
+        if href:
+            website_html = f'<a href="{html_attr(href)}" target="_blank" rel="noopener noreferrer">{html_escape(website)}</a>'
+        rank_label = "Prime" if view.get("index") == 1 else f'No.{view.get("index")}'
+        test_badge = '<span class="test-badge">测试数据</span>' if view.get("is_test") else ""
+        cards.append(
+            f'<article class="station-card{" station-card-prime" if view.get("index") == 1 else ""}" '
+            f'style="--delay:{min(int(view.get("index") or 1) * 45, 540)}ms">'
+            '<div class="card-orbit" aria-hidden="true"></div>'
+            '<header class="station-head">'
+            f'<div><p class="rank-kicker">{html_escape(rank_label)}</p>'
+            f'<h2>{html_escape(view.get("name"))}{test_badge}</h2></div>'
+            f'<span class="record-count">{len(view.get("rows") or [])} 条记录</span>'
+            '</header>'
+            '<div class="station-meta">'
+            f'<span><b>官网</b>{website_html}</span>'
+            f'<span><b>充值比</b>{html_escape(view.get("recharge_ratio"))}</span>'
+            f'<span><b>最后更新</b>{html_escape(view.get("updated_at"))}</span>'
+            '</div>'
+            f'<p class="station-notes">{html_escape(view.get("notes"))}</p>'
+            '<div class="table-wrap">'
+            '<table>'
+            '<thead><tr>'
+            '<th>模型</th><th>分组</th><th>倍率</th><th>折算价格</th><th>综合价</th><th>便宜原因</th><th>可信度</th><th>提醒</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody>'
+            '</table>'
+            '</div>'
+            '</article>'
+        )
+    return "".join(cards)
+
+
+def render_station_html_document(
+    views: List[Dict[str, Any]],
+    payload: Dict[str, Any],
+    filters: Dict[str, Any],
+    mode: str,
+) -> str:
+    theme = normalize_text(payload.get("theme") or "dark").lower()
+    theme_class = "theme-light" if theme == "light" else "theme-dark"
+    title = normalize_text(payload.get("title"))
+    if not title:
+        title = "站点价格排行雷达" if mode == "rank" else "站点价格情报总览"
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    model_text = filters.get("model_name") or "全部模型"
+    metric_text = metric_title(filters.get("metric"))
+    card_count = len(views)
+    record_count = sum(len(view.get("rows") or []) for view in views)
+    filter_chips = render_filter_chips(filters)
+    cards = render_station_cards(views)
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #07110f;
+      --panel: rgba(10, 26, 23, .78);
+      --panel-strong: rgba(13, 37, 33, .92);
+      --text: #edf7f3;
+      --muted: #9db5ad;
+      --line: rgba(137, 255, 219, .16);
+      --cyan: #48f2c2;
+      --cyan-soft: rgba(72, 242, 194, .18);
+      --amber: #ffbf4d;
+      --danger: #ff6b7d;
+      --risk: #ffdf87;
+      --ok: #75e6a1;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .38);
+      --radius: 8px;
+      font-family: "Trebuchet MS", "Aptos", "Microsoft YaHei", sans-serif;
+    }}
+    .theme-light {{
+      color-scheme: light;
+      --bg: #eef5f1;
+      --panel: rgba(255, 255, 255, .78);
+      --panel-strong: rgba(255, 255, 255, .94);
+      --text: #11221d;
+      --muted: #526b62;
+      --line: rgba(3, 92, 75, .18);
+      --cyan: #008f73;
+      --cyan-soft: rgba(0, 143, 115, .12);
+      --amber: #a86800;
+      --danger: #b3263a;
+      --risk: #806000;
+      --ok: #0d7b45;
+      --shadow: 0 24px 70px rgba(13, 44, 38, .16);
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ background: var(--bg); }}
+    body {{
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--text);
+      background:
+        linear-gradient(120deg, rgba(72, 242, 194, .12), transparent 32%),
+        radial-gradient(circle at 82% 8%, rgba(255, 191, 77, .16), transparent 28%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 54px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 54px),
+        var(--bg);
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }}
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(255,255,255,.18) 1px, transparent 1px);
+      background-size: 3px 3px;
+      opacity: .08;
+      mix-blend-mode: screen;
+    }}
+    a {{ color: var(--cyan); text-underline-offset: 3px; }}
+    .shell {{ width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 34px 0 56px; }}
+    .hero {{
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.3fr .7fr;
+      gap: 22px;
+      align-items: stretch;
+      margin-bottom: 20px;
+      animation: rise .5s ease-out both;
+    }}
+    .hero-main, .signal-panel, .station-card, .empty-state {{
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }}
+    .hero-main {{ padding: 28px; overflow: hidden; position: relative; }}
+    .hero-main::after {{
+      content: "";
+      position: absolute;
+      right: -90px;
+      top: -110px;
+      width: 260px;
+      height: 260px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      box-shadow: inset 0 0 48px var(--cyan-soft);
+    }}
+    .eyebrow {{ margin: 0 0 12px; color: var(--cyan); font-weight: 700; text-transform: uppercase; font-size: 12px; }}
+    h1 {{ margin: 0; max-width: 760px; font-size: clamp(30px, 6vw, 68px); line-height: .98; letter-spacing: 0; }}
+    .hero-copy {{ margin: 18px 0 0; max-width: 760px; color: var(--muted); font-size: 17px; line-height: 1.65; }}
+    .chips {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
+    .chip {{
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    .chip b {{ color: var(--text); font-weight: 700; }}
+    .signal-panel {{
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+      background: var(--panel-strong);
+    }}
+    .signal {{
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+    }}
+    .signal:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .signal span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .signal strong {{ display: block; margin-top: 5px; font-size: 28px; font-variant-numeric: tabular-nums; }}
+    .board {{ display: grid; gap: 16px; }}
+    .station-card {{
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+      animation: cardIn .52s ease-out both;
+      animation-delay: var(--delay);
+      transition: transform .22s ease, border-color .22s ease, background .22s ease;
+    }}
+    .station-card:hover, .station-card:focus-within {{
+      transform: translateY(-3px);
+      border-color: color-mix(in srgb, var(--cyan) 48%, transparent);
+    }}
+    .station-card-prime::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0 34%, rgba(72,242,194,.18) 48%, transparent 62%);
+      transform: translateX(-100%);
+      animation: scan 3.6s ease-in-out infinite;
+      pointer-events: none;
+    }}
+    .card-orbit {{
+      position: absolute;
+      width: 170px;
+      height: 170px;
+      right: -82px;
+      top: -92px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      opacity: .65;
+    }}
+    .station-head {{
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }}
+    .rank-kicker {{ margin: 0 0 5px; color: var(--amber); font-size: 12px; font-weight: 800; text-transform: uppercase; }}
+    h2 {{ margin: 0; font-size: clamp(20px, 3vw, 30px); letter-spacing: 0; }}
+    .test-badge, .record-count {{
+      display: inline-flex;
+      margin-left: 10px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--amber);
+      font-size: 12px;
+      vertical-align: middle;
+    }}
+    .record-count {{ margin-left: 0; color: var(--cyan); white-space: nowrap; }}
+    .station-meta {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) .55fr .8fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }}
+    .station-meta span {{
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: rgba(255,255,255,.035);
+      overflow-wrap: anywhere;
+    }}
+    .station-meta b {{ display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; }}
+    .station-notes {{ margin: 0 0 16px; color: var(--muted); line-height: 1.65; }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }}
+    table {{ width: 100%; border-collapse: collapse; min-width: 900px; background: rgba(0,0,0,.12); }}
+    th, td {{ padding: 13px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }}
+    th {{ color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; background: rgba(255,255,255,.04); }}
+    td {{ color: var(--text); line-height: 1.55; }}
+    tr:last-child td {{ border-bottom: 0; }}
+    .num, .price {{ font-family: "Cascadia Mono", "Consolas", monospace; font-variant-numeric: tabular-nums; }}
+    .price {{ color: var(--cyan); font-weight: 800; }}
+    .tags {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .tag {{
+      display: inline-flex;
+      padding: 5px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      line-height: 1.25;
+      background: rgba(255,255,255,.045);
+    }}
+    .tag-ok {{ color: var(--ok); }}
+    .tag-risk {{ color: var(--risk); }}
+    .tag-danger {{ color: var(--danger); }}
+    .empty-state {{
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 44px 20px;
+      animation: rise .5s ease-out both;
+    }}
+    .empty-state h2 {{ margin: 16px 0 8px; }}
+    .empty-state p {{ margin: 0; color: var(--muted); }}
+    .empty-pulse {{ width: 82px; height: 82px; border-radius: 50%; border: 1px solid var(--cyan); box-shadow: 0 0 44px var(--cyan-soft); }}
+    .empty-row {{ text-align: center; color: var(--muted); }}
+    footer {{ margin-top: 18px; color: var(--muted); font-size: 12px; text-align: center; }}
+    @keyframes rise {{ from {{ opacity: 0; transform: translateY(14px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    @keyframes cardIn {{ from {{ opacity: 0; transform: translateY(18px) scale(.99); }} to {{ opacity: 1; transform: translateY(0) scale(1); }} }}
+    @keyframes scan {{ 0%, 48% {{ transform: translateX(-100%); }} 68%, 100% {{ transform: translateX(100%); }} }}
+    @media (max-width: 860px) {{
+      .shell {{ width: min(100% - 20px, 760px); padding-top: 18px; }}
+      .hero {{ grid-template-columns: 1fr; }}
+      .hero-main {{ padding: 22px; }}
+      .station-meta {{ grid-template-columns: 1fr; }}
+      .station-head {{ display: grid; }}
+      .record-count {{ justify-self: start; }}
+      table {{ min-width: 0; }}
+      thead {{ display: none; }}
+      tr {{ display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }}
+      tr:last-child {{ border-bottom: 0; }}
+      td {{ display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 0; border-bottom: 0; overflow-wrap: anywhere; }}
+      td::before {{ content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 800; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }}
+    }}
+  </style>
+</head>
+<body class="{html_attr(theme_class)}">
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-main">
+        <p class="eyebrow">Model Price Intelligence</p>
+        <h1>{html_escape(title)}</h1>
+        <p class="hero-copy">围绕 {html_escape(model_text)} 的站点价格信号面板，按 {html_escape(metric_text)} 聚合展示，保留可信度、过期与异常低价提醒。</p>
+        <div class="chips">{filter_chips}</div>
+      </div>
+      <aside class="signal-panel" aria-label="排行概览">
+        <div class="signal"><span>命中站点</span><strong>{card_count}</strong></div>
+        <div class="signal"><span>价格记录</span><strong>{record_count}</strong></div>
+        <div class="signal"><span>生成时间</span><strong>{html_escape(generated_at)}</strong></div>
+      </aside>
+    </section>
+    <section class="board" aria-label="站点排行列表">
+      {cards}
+    </section>
+    <footer>由 model-price-calculator 本地价格库生成 · HTML 仅用于展示，不会修改数据</footer>
+  </main>
+</body>
+</html>"""
+
+
+def maybe_write_html_output(result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    output_file = normalize_text(payload.get("output_file"))
+    if not output_file:
+        return result
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(result.get("html", ""), encoding="utf-8")
+    result["output_file"] = str(output_path)
+    return result
+
+
+def build_rank_station_html(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    rank_result, views, station_ids = collect_rank_station_html_views(registry, query)
+    html_text = render_station_html_document(views, query, rank_result.get("filters", {}), "rank")
+    result = {
+        "count": len(views),
+        "station_ids": station_ids,
+        "filters": rank_result.get("filters", {}),
+        "html": html_text,
+    }
+    return maybe_write_html_output(result, query)
+
+
+def build_station_html(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    views = collect_station_html_views(registry, query)
+    filters = {
+        "model_name": query.get("model_name") or None,
+        "group": query.get("group") or None,
+        "metric": query.get("sort_by") or query.get("metric") or "summary_rmb_per_m",
+        "direction": normalize_text(query.get("direction") or "asc").lower(),
+        "include_terms": ensure_list(query.get("include_terms") or query.get("include") or query.get("包含")),
+        "exclude_terms": ensure_list(query.get("exclude_terms") or query.get("exclude") or query.get("排除")),
+        "min_confidence": normalize_confidence(query.get("min_confidence") or query.get("最低可信度")),
+    }
+    html_text = render_station_html_document(views, query, filters, "stations")
+    result = {
+        "count": len(views),
+        "html": html_text,
+    }
+    return maybe_write_html_output(result, query)
+
+
 def build_leaderboard_copy(rank_result: Dict[str, Any]) -> Dict[str, Any]:
     filters = rank_result.get("filters", {})
     items = rank_result.get("items", [])
@@ -2024,12 +2615,14 @@ def main() -> None:
             "upsert",
             "rank",
             "rank-stations-md",
+            "rank-stations-html",
             "list",
             "leaderboard",
             "update-station",
             "patch-record",
             "history",
             "stations-md",
+            "stations-html",
             "cleanup-test",
         ],
         help="Registry action",
@@ -2050,6 +2643,8 @@ def main() -> None:
         result = rank_records(registry, payload)
     elif args.command == "rank-stations-md":
         result = build_rank_station_markdown(registry, payload)
+    elif args.command == "rank-stations-html":
+        result = build_rank_station_html(registry, payload)
     elif args.command == "leaderboard":
         result = build_leaderboard_copy(rank_records(registry, payload))
     elif args.command == "update-station":
@@ -2060,6 +2655,8 @@ def main() -> None:
         result = query_price_history(registry, payload)
     elif args.command == "stations-md":
         result = build_station_markdown(registry, payload)
+    elif args.command == "stations-html":
+        result = build_station_html(registry, payload)
     elif args.command == "cleanup-test":
         result = cleanup_test_stations(registry)
     else:

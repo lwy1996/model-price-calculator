@@ -508,6 +508,18 @@ python "<skill_dir>/scripts/calc_model_price.py" --json "<json-string>"
 如果用户要以更好看的 Markdown 列表查看全部站点，运行：
 `scripts/site_price_registry.py stations-md --json-file <payload>`
 
+如果用户明确要求以 HTML、网页、页面展示或可视化页面形式查看站点列表或排行，运行：
+- 排行页面：`scripts/site_price_registry.py rank-stations-html --json-file <payload>`
+- 全部站点页面：`scripts/site_price_registry.py stations-html --json-file <payload>`
+
+HTML 展示规则：
+- 未明确要求 HTML 时，继续使用 `rank-stations-md` 或 `stations-md`，不要改变默认 Markdown 输出习惯
+- HTML 命令返回完整单文件页面源码字段 `html`
+- payload 可传 `title` 自定义页面标题，`theme` 可选 `dark` 或 `light`
+- payload 可传 `output_file` 写入本地 HTML 文件；不传时只在 JSON 中返回 `html`
+- HTML 页面只用于展示，不负责修改、入库或在线刷新价格库
+- HTML 页面仍必须复用现有排行、筛选、可信度、过期提醒和异常低价口径，不另起一套排序逻辑
+
 执行 `stations-md`、`rank-stations-md`、`leaderboard` 或其他已返回 Markdown 文本的展示型命令时：
 - 优先直接渲染脚本返回的 Markdown
 - 不要自行改写结构或重新排版
