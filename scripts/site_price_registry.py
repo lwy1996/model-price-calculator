@@ -299,6 +299,7 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
     return {
         "station": station,
         "changed_fields": unique_strings(changed_fields),
+        "station_snapshot": build_station_snapshot(registry, station),
     }
 
 
@@ -442,6 +443,12 @@ def search_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str
     }
 
 
+def build_station_snapshot(registry: Dict[str, Any], station: Dict[str, Any]) -> Dict[str, Any]:
+    station_id = normalize_text(station.get("station_id"))
+    keyword = station_id or normalize_text(station.get("name") or station.get("website") or station.get("api_base_url"))
+    return build_station_markdown(registry, {"keyword": keyword})
+
+
 def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or {})
     pricing_payload = deepcopy(payload.get("pricing") or {})
@@ -525,6 +532,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         "action": action,
         "station": station,
         "record": record,
+        "station_snapshot": build_station_snapshot(registry, station),
     }
 
 
@@ -601,6 +609,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "station": station,
         "record": record,
         "changed_fields": unique_strings(changed_fields),
+        "station_snapshot": build_station_snapshot(registry, station),
     }
 
 

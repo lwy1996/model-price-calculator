@@ -233,7 +233,12 @@ def commit_draft(data: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any
 
     data["drafts"] = [item for item in data.get("drafts", []) if item.get("draft_id") != draft_id]
     save_drafts(data)
-    return {"draft_id": draft_id, "committed": True, "upsert": upsert_result}
+    return {
+        "draft_id": draft_id,
+        "committed": True,
+        "upsert": upsert_result,
+        "station_snapshot": upsert_result.get("station_snapshot"),
+    }
 
 
 def main() -> None:

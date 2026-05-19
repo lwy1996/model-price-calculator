@@ -194,6 +194,8 @@ API：
 - 如果用户指定模型，则按该模型排序
 - 如果用户指定模型和分组，则按该模型 + 分组排序
 - 默认排序字段优先使用 `summary_rmb_per_m`
+- 每次录入、修改价格、更新站点信息后，都要同时展示该站点当前的完整列表信息
+- 站点列表优先复用 `stations-md` 同款 Markdown 展示结构，不要只返回“已更新成功”
 
 5. 检索匹配规则：
 - 优先用别名命中
@@ -401,3 +403,7 @@ python "<skill_dir>/scripts/calc_model_price.py" --json "<json-string>"
 
 如果用户是多轮补录，运行：
 `scripts/draft_site_price.py`
+
+凡是执行 `upsert`、`update-station`、`patch-record`、`ingest_site_price.py`、`batch_ingest_site_price.py` 或 `draft_site_price.py commit` 这类会改动价格库的动作后：
+- 默认同时读取并展示当前站点的最新列表
+- 若脚本返回了站点快照 Markdown，优先直接渲染该快照

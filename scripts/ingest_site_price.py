@@ -108,6 +108,7 @@ def main() -> None:
             {
                 "upsert": upsert_result,
                 "rank": rank_result,
+                "station_snapshot": upsert_result.get("station_snapshot"),
             },
             ensure_ascii=False,
             indent=2,
