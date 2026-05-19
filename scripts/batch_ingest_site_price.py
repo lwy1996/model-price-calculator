@@ -188,6 +188,8 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
         declared_group_scope = detect_declared_group_scope(stripped)
         if declared_group_scope:
             active_group_scope = declared_group_scope
+            offset += len(line)
+            continue
         header_match = header_pattern.fullmatch(stripped) if stripped and stripped not in SECTION_KEYWORDS else None
         if header_match:
             inline_body = normalize_text(header_match.group(2))
