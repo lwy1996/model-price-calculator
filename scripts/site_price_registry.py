@@ -1650,11 +1650,10 @@ def iso_to_display(value: Any) -> str:
     text = normalize_text(value)
     if not text:
         return "未记录"
-    try:
-        parsed = datetime.fromisoformat(text)
-        return parsed.strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    parsed = parse_iso_datetime(text)
+    if parsed is None:
         return text
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def station_record_summary(registry: Dict[str, Any], station_id: str) -> Dict[str, Any]:
@@ -1722,17 +1721,23 @@ def station_completeness(station: Dict[str, Any]) -> str:
 
 
 def build_original_price_text(record: Dict[str, Any]) -> str:
+    def display_price(value: Any) -> str:
+        text = normalize_text(value)
+        if not text:
+            return ""
+        return re.sub(r"(?i)(/\s*)1M(?:\s*tokens?)?", r"\1M", text)
+
     parts = []
     if record.get("input_price"):
-        parts.append(f"输入 {record.get('input_price')}")
+        parts.append(f"输入 {display_price(record.get('input_price'))}")
     if record.get("output_price"):
-        parts.append(f"输出 {record.get('output_price')}")
+        parts.append(f"输出 {display_price(record.get('output_price'))}")
     if record.get("cache_read_price"):
-        parts.append(f"缓存读 {record.get('cache_read_price')}")
+        parts.append(f"缓存读 {display_price(record.get('cache_read_price'))}")
     elif record.get("cache_price"):
-        parts.append(f"缓存 {record.get('cache_price')}")
+        parts.append(f"缓存 {display_price(record.get('cache_price'))}")
     if record.get("cache_write_price"):
-        parts.append(f"缓存写 {record.get('cache_write_price')}")
+        parts.append(f"缓存写 {display_price(record.get('cache_write_price'))}")
     return " · ".join(parts) if parts else "未记录"
 
 
@@ -2508,7 +2513,11 @@ def dashboard_record_item(
 ) -> Dict[str, Any]:
     computed = compute(build_record_pricing_payload(station, record))
     score, _ = record_confidence(record, station)
-    warnings = record_health_warnings(station, record, anomaly_low_price_warnings(record, computed, medians))
+    warnings = [
+        warning
+        for warning in record_health_warnings(station, record, anomaly_low_price_warnings(record, computed, medians))
+        if "可信度" not in normalize_text(warning)
+    ]
     cheap_reasons = item_explain_parts(station, record, "summary_rmb_per_m", computed)
     dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
     return {
@@ -2521,6 +2530,7 @@ def dashboard_record_item(
         "model_name": normalize_text(record.get("model_name")),
         "group": normalize_text(record.get("group")),
         "group_note": normalize_text(record.get("group_note")),
+        "original_price": build_original_price_text(record),
         "multiplier": trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1"),
         "computed_price": build_computed_price_text(record, computed),
         "summary_rmb_per_m": normalize_text(computed.get("summary", {}).get("rmb_per_m")),
@@ -2532,9 +2542,9 @@ def dashboard_record_item(
         "confidence_label": confidence_label(score),
         "warnings": warnings,
         "cheap_reasons": cheap_reasons,
-        "last_verified_at": record_verified_at(station, record),
-        "updated_at": normalize_text(record.get("updated_at") or station.get("updated_at")),
-        "station_updated_at": normalize_text(station.get("updated_at")),
+        "last_verified_at": iso_to_display(record_verified_at(station, record)),
+        "updated_at": iso_to_display(record.get("updated_at") or station.get("updated_at")),
+        "station_updated_at": iso_to_display(station.get("updated_at")),
         "copy_text": computed.get("copy_text"),
     }
 
@@ -2640,6 +2650,14 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
     }}
     button {{ cursor: pointer; padding: 0 14px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
     button:hover {{ transform: translateY(-1px); border-color: var(--mint); }}
+    select option {{
+      background: #0f251f;
+      color: #effdf8;
+    }}
+    [data-theme="light"] select option {{
+      background: #ffffff;
+      color: #10231e;
+    }}
     button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {{ outline: 3px solid rgba(76,246,196,.34); outline-offset: 2px; }}
     .shell {{ width: min(1240px, calc(100% - 28px)); margin: 0 auto; padding: 30px 0 48px; }}
     .hero {{
@@ -2681,7 +2699,7 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
       top: 10px;
       z-index: 20;
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(130px, auto));
+      grid-template-columns: minmax(180px, 1fr) repeat(5, minmax(112px, auto)) minmax(92px, auto);
       gap: 10px;
       align-items: center;
       padding: 12px;
@@ -2690,6 +2708,13 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
     .field {{ display: grid; gap: 6px; min-width: 0; }}
     .field label {{ color: var(--muted); font-size: 12px; font-weight: 800; }}
     .field input, .field select {{ width: 100%; padding: 0 12px; }}
+    .reset-field {{ align-self: end; }}
+    .reset-button {{
+      width: 100%;
+      color: var(--ink);
+      font-weight: 800;
+      background: linear-gradient(135deg, rgba(76,246,196,.12), rgba(255,191,77,.08));
+    }}
     .board {{ display: grid; gap: 14px; }}
     .card {{
       position: relative;
@@ -2713,13 +2738,40 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
     .rank {{ margin: 0 0 4px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; }}
     h2 {{ margin: 0; font-size: clamp(20px, 3vw, 30px); letter-spacing: 0; }}
     .price {{ color: var(--mint); font-family: "Cascadia Mono", Consolas, monospace; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }}
-    .meta {{ display: grid; grid-template-columns: 1.2fr .7fr .7fr; gap: 8px; margin-bottom: 12px; }}
-    .meta span {{ min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--muted); overflow-wrap: anywhere; background: rgba(255,255,255,.035); }}
-    .meta b {{ display: block; color: var(--ink); font-size: 12px; margin-bottom: 4px; }}
-    .copy-text {{ margin: 0 0 12px; color: var(--muted); line-height: 1.6; }}
-    .record-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }}
-    .cell {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: rgba(0,0,0,.12); min-width: 0; overflow-wrap: anywhere; }}
-    .cell b {{ display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }}
+    .detail-list {{ display: grid; gap: 8px; }}
+    .detail-row {{
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,.12);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }}
+    .detail-row b {{ color: var(--muted); font-size: 12px; }}
+    .detail-row strong {{ color: var(--ink); font-weight: 600; }}
+    .copy-price {{
+      position: relative;
+      cursor: pointer;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }}
+    .copy-price::after {{
+      content: "点击复制";
+      align-self: start;
+      justify-self: end;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--mint);
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(76,246,196,.07);
+    }}
+    .copy-price:hover {{ transform: translateY(-1px); border-color: color-mix(in srgb, var(--mint) 50%, transparent); background: rgba(76,246,196,.07); }}
+    .copy-price:focus-visible {{ outline: 3px solid rgba(76,246,196,.34); outline-offset: 2px; }}
     .tags {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     .tag {{ border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; font-size: 12px; background: rgba(255,255,255,.045); }}
     .tag.ok {{ color: var(--green); }}
@@ -2728,6 +2780,25 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
     .empty {{ min-height: 300px; display: grid; place-items: center; text-align: center; padding: 32px; }}
     .empty h2 {{ margin: 0 0 8px; }}
     .empty p {{ margin: 0; color: var(--muted); }}
+    .toast {{
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 60;
+      transform: translateY(16px);
+      opacity: 0;
+      pointer-events: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--ink);
+      font-weight: 900;
+      background: var(--panel2);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      transition: opacity .2s ease, transform .2s ease;
+    }}
+    .toast.show {{ opacity: 1; transform: translateY(0); }}
     footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; text-align: center; }}
     @keyframes rise {{ from {{ opacity: 0; transform: translateY(14px); }} to {{ opacity: 1; transform: translateY(0); }} }}
     @keyframes cardIn {{ from {{ opacity: 0; transform: translateY(16px) scale(.99); }} to {{ opacity: 1; transform: translateY(0) scale(1); }} }}
@@ -2735,7 +2806,8 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
     @media (max-width: 980px) {{
       .hero, .toolbar {{ grid-template-columns: 1fr; }}
       .toolbar {{ position: static; }}
-      .meta, .record-grid {{ grid-template-columns: 1fr; }}
+      .detail-row {{ grid-template-columns: 1fr; gap: 5px; }}
+      .copy-price::after {{ justify-self: start; }}
     }}
     @media (prefers-reduced-motion: reduce) {{
       *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }}
@@ -2761,21 +2833,23 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
       <div class="field"><label for="model">模型</label><select id="model"></select></div>
       <div class="field"><label for="group">分组</label><select id="group"></select></div>
       <div class="field"><label for="metric">排序</label><select id="metric"></select></div>
+      <div class="field"><label for="viewMode">视图</label><select id="viewMode"><option value="station" selected>按站点</option><option value="record">按记录</option></select></div>
       <div class="field"><label for="limit">TopN</label><select id="limit"><option>5</option><option selected>10</option><option>20</option><option>50</option><option value="9999">全部</option></select></div>
+      <div class="field reset-field"><button id="resetFilters" class="reset-button" type="button">重置</button></div>
     </section>
     <section id="board" class="board" aria-live="polite"></section>
+    <div id="toast" class="toast" role="status" aria-live="polite">已复制</div>
     <footer>本页由 model-price-calculator 预生成 · 修改价格库后请刷新缓存页面</footer>
   </main>
   <script id="dashboard-data" type="application/json">{data_json}</script>
   <script>
     const dashboard = JSON.parse(document.getElementById('dashboard-data').textContent);
-    const state = {{ search: '', model: '', group: '', metric: 'summary_rmb_per_m', limit: 10 }};
+    const state = {{ search: '', model: '', group: '', metric: 'summary_rmb_per_m', viewMode: 'station', limit: 10 }};
     const metricLabels = {{
       summary_rmb_per_m: '综合价',
       input_rmb_per_m: '输入价',
       output_rmb_per_m: '输出价',
-      cache_read_rmb_per_m: '缓存读取价',
-      confidence_score: '可信度'
+      cache_read_rmb_per_m: '缓存读取价'
     }};
     const byId = (id) => document.getElementById(id);
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char]));
@@ -2789,9 +2863,78 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
       select.innerHTML = `<option value="">${{allLabel}}</option>` + values.map((item) => `<option value="${{escapeHtml(item)}}">${{escapeHtml(item)}}</option>`).join('');
     }}
     function tagHtml(text) {{
-      if (!text) return '<span class="tag ok">稳定</span>';
       const klass = /低|过期|异常|未记录/.test(text) ? 'bad' : 'warn';
       return `<span class="tag ${{klass}}">${{escapeHtml(text)}}</span>`;
+    }}
+    let toastTimer = null;
+    function showToast(message) {{
+      const toast = byId('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 1400);
+    }}
+    function legacyCopyText(value) {{
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      let copied = false;
+      try {{
+        copied = document.execCommand('copy');
+      }} finally {{
+        textarea.remove();
+      }}
+      return copied;
+    }}
+    async function copyText(text) {{
+      const value = String(text || '').trim();
+      if (!value) return;
+      let copied = false;
+      try {{
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        }}
+      }} catch (error) {{
+        copied = false;
+      }}
+      if (!copied) {{
+        copied = legacyCopyText(value);
+      }}
+      if (copied) {{
+        showToast('已复制');
+      }} else {{
+        showToast('复制失败，请手动选中复制');
+      }}
+    }}
+    function copyPriceRow(record) {{
+      const text = record.copy_text || record.original_price || '';
+      return `<div class="detail-row copy-price" role="button" tabindex="0" data-copy="${{escapeHtml(text)}}" title="点击复制文案"><b>原始价格</b><strong>${{escapeHtml(record.original_price || '-')}}</strong></div>`;
+    }}
+    function representativeRecords(records) {{
+      if (state.viewMode === 'record') return records;
+      const grouped = new Map();
+      for (const record of records) {{
+        const stationRecords = grouped.get(record.station_id) || [];
+        stationRecords.push(record);
+        grouped.set(record.station_id, stationRecords);
+      }}
+      return Array.from(grouped.values()).map((stationRecords) => {{
+        const representative = stationRecords.reduce((best, record) => {{
+          const bestValue = numberValue(best[state.metric]);
+          const recordValue = numberValue(record[state.metric]);
+          return recordValue < bestValue ? record : best;
+        }}, stationRecords[0]);
+        return {{ ...representative, station_record_count: stationRecords.length }};
+      }});
     }}
     function render() {{
       const query = state.search.trim().toLowerCase();
@@ -2802,8 +2945,8 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
         return [record.station_name, record.website, record.notes, record.model_name, record.group, record.group_note]
           .some((value) => String(value || '').toLowerCase().includes(query));
       }});
+      records = representativeRecords(records);
       records.sort((left, right) => {{
-        if (state.metric === 'confidence_score') return Number(right.confidence_score || 0) - Number(left.confidence_score || 0);
         return numberValue(left[state.metric]) - numberValue(right[state.metric]);
       }});
       records = records.slice(0, Number(state.limit));
@@ -2813,31 +2956,37 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
         return;
       }}
       board.innerHTML = records.map((record, index) => {{
-        const warnings = (record.warnings || []).length ? record.warnings.map(tagHtml).join('') : tagHtml('');
-        const reasons = (record.cheap_reasons || []).length ? record.cheap_reasons.map((item) => `<span class="tag warn">${{escapeHtml(item)}}</span>`).join('') : '<span class="tag ok">常规价格</span>';
+        const warningItems = record.warnings || [];
+        const warnings = warningItems.map(tagHtml).join('');
+        const warningRow = warningItems.length ? `<div class="detail-row"><b>提醒</b><div class="tags">${{warnings}}</div></div>` : '';
         return `<article class="card ${{index === 0 ? 'prime' : ''}}" style="--delay:${{Math.min(index * 35, 420)}}ms">
           <header class="card-head">
-            <div><p class="rank">${{index === 0 ? 'Prime' : `No.${{index + 1}}`}}</p><h2>${{escapeHtml(record.station_name)}}</h2></div>
+            <div><p class="rank">${{index === 0 ? 'Prime' : `No.${{index + 1}}`}}</p><h2>${{escapeHtml(record.station_name)}}${{state.viewMode === 'station' ? ` · ${{record.station_record_count || 1}} 条命中` : ''}}</h2></div>
             <div class="price">${{escapeHtml(record[state.metric] || record.summary_rmb_per_m || '-')}}/M</div>
           </header>
-          <div class="meta">
-            <span><b>官网</b>${{safeLink(record.website)}}</span>
-            <span><b>充值比</b>${{escapeHtml(record.recharge_ratio || '1:1')}}</span>
-            <span><b>更新时间</b>${{escapeHtml(record.updated_at || record.station_updated_at || '-')}}</span>
-          </div>
-          <p class="copy-text">${{escapeHtml(record.notes || '无备注')}}</p>
-          <div class="record-grid">
-            <div class="cell"><b>模型 / 分组</b>${{escapeHtml(record.model_name)}} / ${{escapeHtml(record.group)}}</div>
-            <div class="cell"><b>倍率</b>${{escapeHtml(record.multiplier)}}</div>
-            <div class="cell"><b>折算价格</b>${{escapeHtml(record.computed_price)}}</div>
-            <div class="cell"><b>可信度</b>${{escapeHtml(record.confidence_label)}}</div>
-            <div class="cell"><b>便宜原因</b><div class="tags">${{reasons}}</div></div>
-            <div class="cell"><b>提醒</b><div class="tags">${{warnings}}</div></div>
-            <div class="cell"><b>分组备注</b>${{escapeHtml(record.group_note || '-')}}</div>
-            <div class="cell"><b>可复制文案</b>${{escapeHtml(record.copy_text || '-')}}</div>
+          <div class="detail-list">
+            <div class="detail-row"><b>官网</b><strong>${{safeLink(record.website)}}</strong></div>
+            <div class="detail-row"><b>站点备注</b><strong>${{escapeHtml(record.notes || '无备注')}}</strong></div>
+            <div class="detail-row"><b>模型/分组</b><strong>${{escapeHtml(record.model_name)}} / ${{escapeHtml(record.group)}}</strong></div>
+            <div class="detail-row"><b>分组备注</b><strong>${{escapeHtml(record.group_note || '-')}}</strong></div>
+            <div class="detail-row"><b>充值比</b><strong>${{escapeHtml(record.recharge_ratio || '1:1')}}</strong></div>
+            <div class="detail-row"><b>倍率</b><strong>${{escapeHtml(record.multiplier)}}</strong></div>
+            ${{copyPriceRow(record)}}
+            <div class="detail-row"><b>折算价格</b><strong>${{escapeHtml(record.computed_price)}}</strong></div>
+            ${{warningRow}}
+            <div class="detail-row"><b>更新时间</b><strong>${{escapeHtml(record.updated_at || record.station_updated_at || '-')}}</strong></div>
           </div>
         </article>`;
       }}).join('');
+      board.querySelectorAll('[data-copy]').forEach((item) => {{
+        item.addEventListener('click', () => copyText(item.dataset.copy));
+        item.addEventListener('keydown', (event) => {{
+          if (event.key === 'Enter' || event.key === ' ') {{
+            event.preventDefault();
+            copyText(item.dataset.copy);
+          }}
+        }});
+      }});
     }}
     function bind() {{
       byId('stationCount').textContent = dashboard.station_count;
@@ -2846,8 +2995,23 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
       fillSelect('model', dashboard.models, '全部模型');
       fillSelect('group', dashboard.groups, '全部分组');
       byId('metric').innerHTML = Object.entries(metricLabels).map(([value, label]) => `<option value="${{value}}">${{label}}</option>`).join('');
-      ['model', 'group', 'metric', 'limit'].forEach((id) => byId(id).addEventListener('change', (event) => {{ state[id] = event.target.value; render(); }}));
+      ['model', 'group', 'metric', 'viewMode', 'limit'].forEach((id) => byId(id).addEventListener('change', (event) => {{ state[id] = event.target.value; render(); }}));
       byId('search').addEventListener('input', (event) => {{ state.search = event.target.value; render(); }});
+      byId('resetFilters').addEventListener('click', () => {{
+        state.search = '';
+        state.model = '';
+        state.group = '';
+        state.metric = 'summary_rmb_per_m';
+        state.viewMode = 'station';
+        state.limit = 10;
+        byId('search').value = '';
+        byId('model').value = '';
+        byId('group').value = '';
+        byId('metric').value = state.metric;
+        byId('viewMode').value = state.viewMode;
+        byId('limit').value = String(state.limit);
+        render();
+      }});
       render();
     }}
     bind();
