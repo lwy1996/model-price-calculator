@@ -130,7 +130,7 @@ def normalize_group_multiplier_map(value: Any) -> Dict[str, float]:
     return normalized
 
 
-def build_station_identifiers(station: Dict[str, Any]) -> List[str]:
+def build_station_identifiers(station: Dict[str, Any], include_api: bool = True) -> List[str]:
     identifiers = []
     identifiers.extend(ensure_list(station.get("aliases")))
     identifiers.extend(
@@ -142,8 +142,9 @@ def build_station_identifiers(station: Dict[str, Any]) -> List[str]:
         )
     )
     identifiers.extend(ensure_list(station.get("website")))
-    identifiers.extend(ensure_list(station.get("api_base_url")))
-    identifiers.extend(ensure_list(station.get("api_url")))
+    if include_api:
+        identifiers.extend(ensure_list(station.get("api_base_url")))
+        identifiers.extend(ensure_list(station.get("api_url")))
     return unique_strings(identifiers)
 
 
@@ -215,9 +216,8 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
                 or station_payload.get("alias")
                 or station_payload.get("site_alias")
             ),
-            "aliases": unique_strings(build_station_identifiers(station_payload)),
+            "aliases": unique_strings(build_station_identifiers(station_payload, include_api=False)),
             "website": normalize_text(station_payload.get("website")),
-            "api_base_url": normalize_text(station_payload.get("api_base_url") or station_payload.get("api_url")),
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
             "notes": normalize_text(station_payload.get("notes")),
@@ -229,9 +229,6 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
 
     station["name"] = normalize_text(station_payload.get("name") or station.get("name"))
     station["website"] = normalize_text(station_payload.get("website") or station.get("website"))
-    station["api_base_url"] = normalize_text(
-        station_payload.get("api_base_url") or station_payload.get("api_url") or station.get("api_base_url")
-    )
     incoming_group_multipliers = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
     if incoming_group_multipliers:
         merged_group_multipliers = dict(station.get("group_multipliers") or {})
@@ -266,12 +263,6 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             station["website"] = value
             changed_fields.append("website")
 
-    if "api_base_url" in station_payload or "api_url" in station_payload:
-        value = normalize_text(station_payload.get("api_base_url") or station_payload.get("api_url"))
-        if value and value != station.get("api_base_url"):
-            station["api_base_url"] = value
-            changed_fields.append("api_base_url")
-
     if "group_multipliers" in station_payload:
         value = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
         if value and value != (station.get("group_multipliers") or {}):
@@ -290,7 +281,7 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             station["notes"] = value
             changed_fields.append("notes")
 
-    new_aliases = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload))
+    new_aliases = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload, include_api=False))
     if new_aliases != station.get("aliases", []):
         station["aliases"] = new_aliases
         changed_fields.append("aliases")
@@ -380,7 +371,6 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
         "station_name": station.get("name") or record.get("station_id"),
         "aliases": station.get("aliases", []),
         "website": station.get("website"),
-        "api_base_url": station.get("api_base_url"),
         "model_name": record.get("model_name"),
         "group": record.get("group"),
         "metric": metric,
@@ -446,7 +436,7 @@ def search_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str
 
 def build_station_snapshot(registry: Dict[str, Any], station: Dict[str, Any]) -> Dict[str, Any]:
     station_id = normalize_text(station.get("station_id"))
-    keyword = station_id or normalize_text(station.get("name") or station.get("website") or station.get("api_base_url"))
+    keyword = station_id or normalize_text(station.get("name") or station.get("website"))
     return build_station_markdown(registry, {"keyword": keyword})
 
 
@@ -659,17 +649,13 @@ def station_completeness(station: Dict[str, Any]) -> str:
     score = 0
     if normalize_text(station.get("website")):
         score += 1
-    if normalize_text(station.get("api_base_url")):
-        score += 1
     if normalize_text(station.get("notes")):
         score += 1
 
-    if score == 3:
-        return "完整"
     if score == 2:
-        return "较完整"
+        return "完整"
     if score == 1:
-        return "部分缺失"
+        return "较完整"
     return "待补充"
 
 
@@ -727,6 +713,59 @@ def build_computed_price_text(record: Dict[str, Any]) -> str:
     return " · ".join(parts) if parts else "未记录"
 
 
+def append_station_markdown_block(
+    lines: List[str],
+    station: Dict[str, Any],
+    summary: Dict[str, Any],
+    index: int,
+) -> None:
+    website = normalize_text(station.get("website")) or "未记录"
+    notes = normalize_text(station.get("notes")) or "无"
+    marker = "（测试）" if is_test_station(station) else ""
+
+    lines.append(f"## {index}. {station.get('name') or station.get('station_id')}{marker}")
+    lines.append("")
+    lines.append(f"- 官网：{website}")
+    lines.append(f"- 备注：{notes}")
+    if is_test_station(station):
+        lines.append("- 标识：测试数据")
+    lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
+    lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
+    lines.append("")
+
+    has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
+    if has_group_note:
+        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 充值比 | 折算价格 | 综合价 |")
+        lines.append("|---|---|---|---:|---|---|---:|")
+    else:
+        lines.append("| 模型 | 分组 | 倍率 | 充值比 | 折算价格 | 综合价 |")
+        lines.append("|---|---|---:|---|---|---:|")
+
+    for record in summary["records"]:
+        computed = record.get("computed", {})
+        multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
+        recharge_ratio = normalize_text(record.get("recharge_ratio")) or "1:1"
+        group_note = normalize_text(record.get("group_note")) or "-"
+        summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
+        if has_group_note:
+            lines.append(
+                f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
+                f"`{recharge_ratio}` | {build_computed_price_text(record)} | `{summary_cost}` |"
+            )
+        else:
+            lines.append(
+                f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
+                f"`{recharge_ratio}` | {build_computed_price_text(record)} | `{summary_cost}` |"
+            )
+
+    if not summary["records"]:
+        if has_group_note:
+            lines.append("| - | - | - | - | - | 暂无价格记录 | - |")
+        else:
+            lines.append("| - | - | - | - | 暂无价格记录 | - |")
+    lines.append("")
+
+
 def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     keyword = normalize_text(query.get("keyword"))
     stations = registry.get("stations", [])
@@ -738,7 +777,6 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
                 station.get("station_id"),
                 station.get("name"),
                 station.get("website"),
-                station.get("api_base_url"),
                 *(station.get("aliases") or []),
             ]
             if any(lowered in normalize_text(item).lower() for item in haystacks):
@@ -761,52 +799,55 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
 
     for index, station in enumerate(stations, start=1):
         summary = station_record_summary(registry, station.get("station_id"))
-        aliases = station.get("aliases") or []
-        alias_text = " / ".join(aliases[:5]) if aliases else "未记录"
-        website = normalize_text(station.get("website")) or "未记录"
-        api_base_url = normalize_text(station.get("api_base_url")) or "未记录"
-        notes = normalize_text(station.get("notes")) or "无"
-        marker = "（测试）" if is_test_station(station) else ""
-
-        lines.append(f"## {index}. {station.get('name') or station.get('station_id')}{marker}")
-        lines.append("")
-        lines.append(f"- 官网：{website}")
-        lines.append(f"- API：{api_base_url}")
-        lines.append(f"- 备注：{notes}")
-        if is_test_station(station):
-            lines.append("- 标识：测试数据")
-        lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
-        lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
-        lines.append("")
-        has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
-        if has_group_note:
-            lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
-            lines.append("|---|---|---|---:|---|---:|")
-        else:
-            lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
-            lines.append("|---|---|---:|---|---:|")
-        for record in summary["records"]:
-            computed = record.get("computed", {})
-            multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
-            group_note = normalize_text(record.get("group_note")) or "-"
-            summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
-            if has_group_note:
-                lines.append(
-                    f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
-                    f"{build_computed_price_text(record)} | `{summary_cost}` |"
-                )
-            else:
-                lines.append(
-                    f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
-                    f"{build_computed_price_text(record)} | `{summary_cost}` |"
-                )
-        if not summary["records"]:
-            lines.append("| - | - | - | 暂无价格记录 | - |")
-        lines.append("")
+        append_station_markdown_block(lines, station, summary, index)
 
     return {
         "count": len(stations),
         "text": "\n".join(lines).strip(),
+    }
+
+
+def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    rank_result = rank_records(registry, query)
+    limit = int(query.get("limit") or 10)
+    station_ids = []
+    seen_station_ids = set()
+
+    for item in rank_result.get("items", []):
+        station_id = normalize_text(item.get("station_id"))
+        if not station_id or station_id in seen_station_ids:
+            continue
+        seen_station_ids.add(station_id)
+        station_ids.append(station_id)
+        if len(station_ids) >= limit:
+            break
+
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+
+    model_name = normalize_text(rank_result.get("filters", {}).get("model_name")) or "全部模型"
+    group = normalize_text(rank_result.get("filters", {}).get("group"))
+    title = f"# {model_name} 最便宜 Top {len(stations)}"
+    if group:
+        title = f"# {model_name} / {group} 最便宜 Top {len(stations)}"
+
+    lines = [title, ""]
+    lines.append(f"- 排序字段：`{rank_result.get('filters', {}).get('metric') or 'summary_rmb_per_m'}`")
+    lines.append(f"- 排序方向：`{rank_result.get('filters', {}).get('direction') or 'asc'}`")
+    lines.append(f"- 命中站点：`{len(stations)}`")
+    lines.append(f"- 命中价格记录：`{rank_result.get('count', 0)}`")
+    lines.append("")
+
+    for index, station in enumerate(stations, start=1):
+        append_station_markdown_block(lines, station, station_record_summary(registry, station.get("station_id")), index)
+
+    return {
+        "count": len(stations),
+        "text": "\n".join(lines).strip(),
+        "station_ids": station_ids,
     }
 
 
@@ -898,6 +939,7 @@ def main() -> None:
             "search",
             "upsert",
             "rank",
+            "rank-stations-md",
             "list",
             "leaderboard",
             "update-station",
@@ -919,6 +961,8 @@ def main() -> None:
         result = upsert_record(registry, payload)
     elif args.command == "rank":
         result = rank_records(registry, payload)
+    elif args.command == "rank-stations-md":
+        result = build_rank_station_markdown(registry, payload)
     elif args.command == "leaderboard":
         result = build_leaderboard_copy(rank_records(registry, payload))
     elif args.command == "update-station":

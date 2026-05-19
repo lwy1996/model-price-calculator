@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple
 from site_price_registry import build_station_snapshot, load_registry, upsert_record
 
 
-SECTION_KEYWORDS = {"站点名称", "官网", "API", "倍率", "备注", "充值比", "分组备注"}
+SECTION_KEYWORDS = {"站点名称", "官网", "倍率", "备注", "充值比", "分组备注"}
 
 
 def normalize_text(value: Any) -> str:
@@ -49,7 +49,6 @@ def parse_station_info(text: str) -> Dict[str, Any]:
     patterns = {
         "name": r"站点名称[:：]\s*(.+)",
         "website": r"官网[:：]\s*(.+)",
-        "api_base_url": r"API[:：]\s*(.+)",
         "notes": r"备注[:：]\s*(.+)",
     }
     for key, pattern in patterns.items():

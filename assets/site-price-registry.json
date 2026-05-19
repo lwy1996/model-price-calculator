@@ -529,13 +529,13 @@
       "group": "default",
       "source": "manual",
       "currency_hint": "",
-      "input_price": "$3 / 1M",
-      "output_price": "$18 / 1M",
+      "input_price": "$2.5 / 1M",
+      "output_price": "$15 / 1M",
       "cache_price": null,
-      "cache_read_price": "$0.3 / 1M",
+      "cache_read_price": "$0.25 / 1M",
       "cache_write_price": null,
       "multiplier": 0.1,
-      "recharge_ratio": "1:1",
+      "recharge_ratio": "1:2",
       "sale_price": null,
       "tags": [],
       "computed": {
@@ -543,33 +543,33 @@
         "group": "default",
         "multiplier": "0.1000",
         "recharge_ratio": {
-          "display": "1:1",
-          "unit_rate": "1.0000"
+          "display": "1:2",
+          "unit_rate": "0.5000"
         },
-        "copy_text": "gpt-5.4-default-输入$3.0000-输出$18.0000-缓存读$0.3000",
+        "copy_text": "gpt-5.4-default-输入$2.5000-输出$15.0000-缓存读$0.2500",
         "dimensions": {
           "input": {
-            "usd_per_m": "3.0000",
-            "multiplied_usd_per_m": "0.3000",
-            "rmb_per_m": "0.3000"
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.1250"
           },
           "output": {
-            "usd_per_m": "18.0000",
-            "multiplied_usd_per_m": "1.8000",
-            "rmb_per_m": "1.8000"
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "0.7500"
           },
           "cache": null,
           "cache_read": {
-            "usd_per_m": "0.3000",
-            "multiplied_usd_per_m": "0.0300",
-            "rmb_per_m": "0.0300"
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0250",
+            "rmb_per_m": "0.0125"
           },
           "cache_write": null
         },
         "summary": {
-          "base_usd_per_m": "21.3000",
-          "multiplied_usd_per_m": "2.1300",
-          "rmb_per_m": "2.1300"
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "1.7750",
+          "rmb_per_m": "0.8875"
         },
         "comparisons": {
           "output_input_ratio": "6.0000",
@@ -593,7 +593,7 @@
       "cache_read_price": "$0.5 / 1M",
       "cache_write_price": null,
       "multiplier": 0.1,
-      "recharge_ratio": "1:1",
+      "recharge_ratio": "1:2",
       "sale_price": null,
       "tags": [],
       "computed": {
@@ -601,33 +601,33 @@
         "group": "default",
         "multiplier": "0.1000",
         "recharge_ratio": {
-          "display": "1:1",
-          "unit_rate": "1.0000"
+          "display": "1:2",
+          "unit_rate": "0.5000"
         },
         "copy_text": "gpt-5.5-default-输入$5.0000-输出$30.0000-缓存读$0.5000",
         "dimensions": {
           "input": {
             "usd_per_m": "5.0000",
             "multiplied_usd_per_m": "0.5000",
-            "rmb_per_m": "0.5000"
+            "rmb_per_m": "0.2500"
           },
           "output": {
             "usd_per_m": "30.0000",
             "multiplied_usd_per_m": "3.0000",
-            "rmb_per_m": "3.0000"
+            "rmb_per_m": "1.5000"
           },
           "cache": null,
           "cache_read": {
             "usd_per_m": "0.5000",
             "multiplied_usd_per_m": "0.0500",
-            "rmb_per_m": "0.0500"
+            "rmb_per_m": "0.0250"
           },
           "cache_write": null
         },
         "summary": {
           "base_usd_per_m": "35.5000",
           "multiplied_usd_per_m": "3.5500",
-          "rmb_per_m": "3.5500"
+          "rmb_per_m": "1.7750"
         },
         "comparisons": {
           "output_input_ratio": "6.0000",

@@ -58,7 +58,7 @@ def resolve_draft_id(payload: Dict[str, Any]) -> str:
         return draft_id
 
     station = payload.get("station") or {}
-    for key in ("alias", "name", "station_name", "website", "api_base_url", "api_url"):
+    for key in ("alias", "name", "station_name", "website"):
         value = normalize_text(station.get(key))
         if value:
             return value.lower()
@@ -130,7 +130,7 @@ def required_state(draft: Dict[str, Any]) -> Dict[str, Any]:
 
     has_station_identity = any(
         normalize_text(station.get(key))
-        for key in ("alias", "name", "station_name", "website", "api_base_url", "api_url")
+        for key in ("alias", "name", "station_name", "website")
     )
     has_model = bool(normalize_text(pricing.get("model_name")))
     has_input = bool(normalize_text(pricing.get("input_price")) or normalize_text(pricing.get("输入价格")))
@@ -144,7 +144,7 @@ def required_state(draft: Dict[str, Any]) -> Dict[str, Any]:
     next_questions = []
     if not has_station_identity:
         missing.append("station_identity")
-        next_questions.append("先给我一个能识别这个站的信息：站点别名、官网地址、或 API 地址，三选一即可。")
+        next_questions.append("先给我一个能识别这个站的信息：站点别名或官网地址，二选一即可。")
     if not has_model:
         missing.append("model_name")
         next_questions.append("这个站你要记录哪个模型？如果有分组也可以一起告诉我。")

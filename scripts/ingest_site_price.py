@@ -24,7 +24,6 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
             "alias": args.alias,
             "name": args.station_name,
             "website": args.website,
-            "api_base_url": args.api_base_url,
             "notes": args.notes,
         }
     }
@@ -85,7 +84,6 @@ def main() -> None:
     parser.add_argument("--alias", help="Site alias")
     parser.add_argument("--station-name", help="Site display name")
     parser.add_argument("--website", help="Site website")
-    parser.add_argument("--api-base-url", help="Site API base URL")
     parser.add_argument("--group", help="Model group")
     parser.add_argument("--model-name", help="Model name override")
     parser.add_argument("--multiplier", type=float, help="Multiplier override")
