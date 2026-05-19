@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from calc_model_price import compute, format_decimal, to_decimal
+from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
 
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
@@ -472,6 +472,8 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         if station_multiplier not in (None, ""):
             pricing_payload["multiplier"] = station_multiplier
 
+    pricing_payload = apply_official_model_defaults(pricing_payload)
+
     computed = compute(pricing_payload)
     timestamp = now_iso()
     record = {
@@ -481,11 +483,24 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         "group": group,
         "source": normalize_text(payload.get("source") or "manual"),
         "currency_hint": normalize_text(payload.get("currency_hint")),
-        "input_price": pricing_payload.get("input_price") or pricing_payload.get("输入价格"),
-        "output_price": pricing_payload.get("output_price") or pricing_payload.get("输出价格") or pricing_payload.get("补全价格"),
-        "cache_price": pricing_payload.get("cache_price") or pricing_payload.get("缓存价格"),
-        "cache_read_price": pricing_payload.get("cache_read_price") or pricing_payload.get("缓存读取价格"),
-        "cache_write_price": pricing_payload.get("cache_write_price") or pricing_payload.get("缓存创建价格"),
+        "input_price": pricing_payload.get("input") or pricing_payload.get("input_price") or pricing_payload.get("输入价格"),
+        "output_price": (
+            pricing_payload.get("output")
+            or pricing_payload.get("output_price")
+            or pricing_payload.get("输出价格")
+            or pricing_payload.get("补全价格")
+        ),
+        "cache_price": pricing_payload.get("cache") or pricing_payload.get("cache_price") or pricing_payload.get("缓存价格"),
+        "cache_read_price": (
+            pricing_payload.get("cache_read")
+            or pricing_payload.get("cache_read_price")
+            or pricing_payload.get("缓存读取价格")
+        ),
+        "cache_write_price": (
+            pricing_payload.get("cache_write")
+            or pricing_payload.get("cache_write_price")
+            or pricing_payload.get("缓存创建价格")
+        ),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
         "recharge_ratio": pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比") or "1:1",
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
