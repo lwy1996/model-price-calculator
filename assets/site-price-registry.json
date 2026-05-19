@@ -1,0 +1,2108 @@
+{
+  "version": 1,
+  "stations": [
+    {
+      "station_id": "alpha",
+      "name": "Alpha Gateway",
+      "aliases": [
+        "alpha",
+        "https://alpha.example.com",
+        "https://alpha.example.com/v1",
+        "https://alpha-new.example.com"
+      ],
+      "website": "https://alpha-new.example.com",
+      "api_base_url": "https://alpha.example.com/v1",
+      "is_test_data": true,
+      "notes": "主用站点",
+      "created_at": "2026-05-18T13:27:21+00:00",
+      "updated_at": "2026-05-18T13:45:59+00:00"
+    },
+    {
+      "station_id": "beta",
+      "name": "Beta Hub",
+      "aliases": [
+        "beta",
+        "https://beta.example.com",
+        "https://beta.example.com/api"
+      ],
+      "website": "https://beta.example.com",
+      "api_base_url": "https://beta.example.com/api",
+      "is_test_data": true,
+      "notes": "",
+      "created_at": "2026-05-18T13:27:21+00:00",
+      "updated_at": "2026-05-18T13:27:21+00:00"
+    },
+    {
+      "station_id": "gamma",
+      "name": "Gamma Node",
+      "aliases": [
+        "gamma",
+        "https://gamma.example.com",
+        "https://gamma.example.com/v1"
+      ],
+      "website": "https://gamma.example.com",
+      "api_base_url": "https://gamma.example.com/v1",
+      "is_test_data": true,
+      "notes": "",
+      "created_at": "2026-05-18T13:33:12+00:00",
+      "updated_at": "2026-05-18T13:33:12+00:00"
+    },
+    {
+      "station_id": "delta",
+      "name": "delta",
+      "aliases": [
+        "delta"
+      ],
+      "website": "",
+      "api_base_url": "",
+      "is_test_data": true,
+      "notes": "",
+      "created_at": "2026-05-18T13:52:22+00:00",
+      "updated_at": "2026-05-18T13:52:22+00:00"
+    },
+    {
+      "station_id": "api-68886868-xyz",
+      "name": "小鸡农场",
+      "aliases": [
+        "小鸡农场",
+        "https://api.68886868.xyz"
+      ],
+      "website": "https://api.68886868.xyz",
+      "api_base_url": "https://api.68886868.xyz",
+      "group_multipliers": {
+        "free": 0.1,
+        "plus": 0.15
+      },
+      "notes": "",
+      "created_at": "2026-05-18T15:37:59+00:00",
+      "updated_at": "2026-05-18T15:52:59+00:00"
+    },
+    {
+      "station_id": "toioto-ai",
+      "name": "ToioTo AI",
+      "aliases": [
+        "ToioTo AI",
+        "https://sub2api.toioto.org"
+      ],
+      "website": "https://sub2api.toioto.org",
+      "api_base_url": "https://sub2api.toioto.org",
+      "notes": "新注册赠送10",
+      "created_at": "2026-05-18T13:55:54+00:00",
+      "updated_at": "2026-05-18T14:28:13+00:00"
+    },
+    {
+      "station_id": "kkai",
+      "name": "KKAI",
+      "aliases": [
+        "KKAI",
+        "https://kkrich.ltd"
+      ],
+      "website": "https://kkrich.ltd",
+      "api_base_url": "https://kkrich.ltd",
+      "notes": "已添加微信群-潘潘AI大本营",
+      "created_at": "2026-05-18T14:48:34+00:00",
+      "updated_at": "2026-05-18T14:52:57+00:00"
+    },
+    {
+      "station_id": "code-router",
+      "name": "Code Router",
+      "aliases": [
+        "Code Router",
+        "https://api.code-relay.com"
+      ],
+      "website": "https://api.code-relay.com",
+      "api_base_url": "https://api.code-relay.com",
+      "notes": "注册送10-邀请送50，已添加QQ群,拉人太多 导致速度慢 余额1700+",
+      "created_at": "2026-05-18T14:59:18+00:00",
+      "updated_at": "2026-05-18T14:59:18+00:00"
+    },
+    {
+      "station_id": "xybbz",
+      "name": "Xybbz",
+      "aliases": [
+        "Xybbz",
+        "https://sub2api.xybbz.xyz",
+        "https://sub2api.xybbz.xyz/v1"
+      ],
+      "website": "https://sub2api.xybbz.xyz",
+      "api_base_url": "https://sub2api.xybbz.xyz/v1",
+      "notes": "v2ex站推广的 已添加QQ群",
+      "created_at": "2026-05-18T15:24:01+00:00",
+      "updated_at": "2026-05-18T15:24:02+00:00"
+    },
+    {
+      "station_id": "batch-demo",
+      "name": "Batch Demo",
+      "aliases": [
+        "Batch Demo",
+        "https://batch.example.com",
+        "https://batch.example.com/v1"
+      ],
+      "website": "https://batch.example.com",
+      "api_base_url": "https://batch.example.com/v1",
+      "is_test_data": true,
+      "notes": "批量测试站点",
+      "created_at": "2026-05-18T15:26:15+00:00",
+      "updated_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "station_id": "packycode",
+      "name": "PackyCode",
+      "aliases": [
+        "https://api-slb.packyapi.com",
+        "PackyCode",
+        "https://www.packyapi.com"
+      ],
+      "website": "https://www.packyapi.com",
+      "api_base_url": "https://www.packyapi.com",
+      "notes": "",
+      "created_at": "2026-05-18T15:29:37+00:00",
+      "updated_at": "2026-05-18T15:29:38+00:00"
+    },
+    {
+      "station_id": "batch-ratio-demo",
+      "name": "Batch Ratio Demo",
+      "aliases": [
+        "Batch Ratio Demo",
+        "https://ratio.example.com",
+        "https://ratio.example.com/v1"
+      ],
+      "website": "https://ratio.example.com",
+      "api_base_url": "https://ratio.example.com/v1",
+      "is_test_data": true,
+      "notes": "",
+      "created_at": "2026-05-18T15:34:20+00:00",
+      "updated_at": "2026-05-18T15:34:20+00:00"
+    }
+  ],
+  "price_records": [
+    {
+      "record_id": "alpha::gpt5-4::pro",
+      "station_id": "alpha",
+      "model_name": "gpt5.4",
+      "group": "pro",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.35 / 1M",
+      "output_price": "$14.5 / 1M",
+      "cache_price": null,
+      "cache_read_price": "$0.24 / 1M",
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt5.4",
+        "group": "pro",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt5.4-pro-输入$2.3500-输出$14.5000-缓存读$0.2400",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.3500",
+            "multiplied_usd_per_m": "2.3500",
+            "rmb_per_m": "2.3500"
+          },
+          "output": {
+            "usd_per_m": "14.5000",
+            "multiplied_usd_per_m": "14.5000",
+            "rmb_per_m": "14.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2400",
+            "multiplied_usd_per_m": "0.2400",
+            "rmb_per_m": "0.2400"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.0900",
+          "multiplied_usd_per_m": "17.0900",
+          "rmb_per_m": "17.0900"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.1702",
+          "cache_read_discount_vs_input": "0.1021",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T13:45:59+00:00",
+      "created_at": "2026-05-18T13:27:21+00:00"
+    },
+    {
+      "record_id": "beta::gpt5-4::pro",
+      "station_id": "beta",
+      "model_name": "gpt5.4",
+      "group": "pro",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.2 / 1M",
+      "output_price": "$14 / 1M",
+      "cache_price": null,
+      "cache_read_price": "$0.22 / 1M",
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt5.4",
+        "group": "pro",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt5.4-pro-输入$2.2000-输出$14.0000-缓存读$0.2200",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.2000",
+            "multiplied_usd_per_m": "2.2000",
+            "rmb_per_m": "2.2000"
+          },
+          "output": {
+            "usd_per_m": "14.0000",
+            "multiplied_usd_per_m": "14.0000",
+            "rmb_per_m": "14.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2200",
+            "multiplied_usd_per_m": "0.2200",
+            "rmb_per_m": "0.2200"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "16.4200",
+          "multiplied_usd_per_m": "16.4200",
+          "rmb_per_m": "16.4200"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.3636",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T13:27:21+00:00",
+      "created_at": "2026-05-18T13:27:21+00:00"
+    },
+    {
+      "record_id": "alpha::gpt5-4::lite",
+      "station_id": "alpha",
+      "model_name": "gpt5.4",
+      "group": "lite",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$1.8 / 1M",
+      "output_price": "$10.8 / 1M",
+      "cache_price": null,
+      "cache_read_price": "$0.18 / 1M",
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt5.4",
+        "group": "lite",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt5.4-lite-输入$1.8000-输出$10.8000-缓存读$0.1800",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "1.8000",
+            "multiplied_usd_per_m": "1.8000",
+            "rmb_per_m": "1.8000"
+          },
+          "output": {
+            "usd_per_m": "10.8000",
+            "multiplied_usd_per_m": "10.8000",
+            "rmb_per_m": "10.8000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.1800",
+            "multiplied_usd_per_m": "0.1800",
+            "rmb_per_m": "0.1800"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "12.7800",
+          "multiplied_usd_per_m": "12.7800",
+          "rmb_per_m": "12.7800"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T13:28:37+00:00",
+      "created_at": "2026-05-18T13:28:37+00:00"
+    },
+    {
+      "record_id": "gamma::gpt5-4::pro",
+      "station_id": "gamma",
+      "model_name": "gpt5.4",
+      "group": "pro",
+      "source": "ingest",
+      "currency_hint": "",
+      "input_price": "$2.8",
+      "output_price": "$16.8",
+      "cache_price": null,
+      "cache_read_price": "$0.28",
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt5.4",
+        "group": "pro",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt5.4-pro-输入$2.8000-输出$16.8000-缓存读$0.2800",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.8000",
+            "multiplied_usd_per_m": "2.8000",
+            "rmb_per_m": "2.8000"
+          },
+          "output": {
+            "usd_per_m": "16.8000",
+            "multiplied_usd_per_m": "16.8000",
+            "rmb_per_m": "16.8000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2800",
+            "multiplied_usd_per_m": "0.2800",
+            "rmb_per_m": "0.2800"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "19.8800",
+          "multiplied_usd_per_m": "19.8800",
+          "rmb_per_m": "19.8800"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T13:33:12+00:00",
+      "created_at": "2026-05-18T13:33:12+00:00"
+    },
+    {
+      "record_id": "delta::gpt5-4::pro",
+      "station_id": "delta",
+      "model_name": "gpt5.4",
+      "group": "pro",
+      "source": "ingest",
+      "currency_hint": "",
+      "input_price": "2.6",
+      "output_price": "15.6",
+      "cache_price": null,
+      "cache_read_price": "0.26",
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt5.4",
+        "group": "pro",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt5.4-pro-输入$2.6000-输出$15.6000-缓存读$0.2600",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.6000",
+            "multiplied_usd_per_m": "2.6000",
+            "rmb_per_m": "2.6000"
+          },
+          "output": {
+            "usd_per_m": "15.6000",
+            "multiplied_usd_per_m": "15.6000",
+            "rmb_per_m": "15.6000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2600",
+            "multiplied_usd_per_m": "0.2600",
+            "rmb_per_m": "0.2600"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "18.4600",
+          "multiplied_usd_per_m": "18.4600",
+          "rmb_per_m": "18.4600"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T13:52:22+00:00",
+      "created_at": "2026-05-18T13:52:22+00:00"
+    },
+    {
+      "record_id": "toioto-ai::gpt-5-4::default",
+      "station_id": "toioto-ai",
+      "model_name": "gpt-5.4",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$3 / 1M",
+      "output_price": "$18 / 1M",
+      "cache_price": null,
+      "cache_read_price": "$0.3 / 1M",
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "default",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-default-输入$3.0000-输出$18.0000-缓存读$0.3000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "3.0000",
+            "multiplied_usd_per_m": "0.3000",
+            "rmb_per_m": "0.3000"
+          },
+          "output": {
+            "usd_per_m": "18.0000",
+            "multiplied_usd_per_m": "1.8000",
+            "rmb_per_m": "1.8000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.3000",
+            "multiplied_usd_per_m": "0.0300",
+            "rmb_per_m": "0.0300"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "21.3000",
+          "multiplied_usd_per_m": "2.1300",
+          "rmb_per_m": "2.1300"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:28:13+00:00",
+      "created_at": "2026-05-18T13:55:54+00:00"
+    },
+    {
+      "record_id": "toioto-ai::gpt-5-5::default",
+      "station_id": "toioto-ai",
+      "model_name": "gpt-5.5",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5 / 1M",
+      "output_price": "$30 / 1M",
+      "cache_price": null,
+      "cache_read_price": "$0.5 / 1M",
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "default",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-default-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0500",
+            "rmb_per_m": "0.0500"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "3.5500",
+          "rmb_per_m": "3.5500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:31:17+00:00",
+      "created_at": "2026-05-18T14:25:03+00:00"
+    },
+    {
+      "record_id": "kkai::gpt-5-4::default",
+      "station_id": "kkai",
+      "model_name": "gpt-5.4",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$17.5 / 1M Tokens",
+      "output_price": "$105 / 1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$1.75 / 1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.4,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "default",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.4-default-输入$17.5000-输出$105.0000-缓存读$1.7500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "17.5000",
+            "multiplied_usd_per_m": "7.0000",
+            "rmb_per_m": "0.5250"
+          },
+          "output": {
+            "usd_per_m": "105.0000",
+            "multiplied_usd_per_m": "42.0000",
+            "rmb_per_m": "3.1500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "1.7500",
+            "multiplied_usd_per_m": "0.7000",
+            "rmb_per_m": "0.0525"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "124.2500",
+          "multiplied_usd_per_m": "49.7000",
+          "rmb_per_m": "3.7275"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:48:34+00:00",
+      "created_at": "2026-05-18T14:48:34+00:00"
+    },
+    {
+      "record_id": "kkai::gpt-5-5::default",
+      "station_id": "kkai",
+      "model_name": "gpt-5.5",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$35 / 1M Tokens",
+      "output_price": "$210 / 1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "$3.5 / 1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.4,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "default",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.5-default-输入$35.0000-输出$210.0000-缓存读$3.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "35.0000",
+            "multiplied_usd_per_m": "14.0000",
+            "rmb_per_m": "1.0500"
+          },
+          "output": {
+            "usd_per_m": "210.0000",
+            "multiplied_usd_per_m": "84.0000",
+            "rmb_per_m": "6.3000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "3.5000",
+            "multiplied_usd_per_m": "1.4000",
+            "rmb_per_m": "0.1050"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "248.5000",
+          "multiplied_usd_per_m": "99.4000",
+          "rmb_per_m": "7.4550"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:48:34+00:00",
+      "created_at": "2026-05-18T14:48:34+00:00"
+    },
+    {
+      "record_id": "code-router::gpt-5-4::vip",
+      "station_id": "code-router",
+      "model_name": "gpt-5.4",
+      "group": "vip",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$20.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "vip",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-vip-输入$2.5000-输出$20.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "2.5000",
+            "rmb_per_m": "2.5000"
+          },
+          "output": {
+            "usd_per_m": "20.0000",
+            "multiplied_usd_per_m": "20.0000",
+            "rmb_per_m": "20.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "22.5000",
+          "multiplied_usd_per_m": "22.5000",
+          "rmb_per_m": "22.5000"
+        },
+        "comparisons": {
+          "output_input_ratio": "8.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:59:18+00:00",
+      "created_at": "2026-05-18T14:59:18+00:00"
+    },
+    {
+      "record_id": "code-router::gpt-5-5::vip",
+      "station_id": "code-router",
+      "model_name": "gpt-5.5",
+      "group": "vip",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5.0000/M",
+      "output_price": "$40.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "vip",
+        "multiplier": "1.0000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-vip-输入$5.0000-输出$40.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "5.0000",
+            "rmb_per_m": "5.0000"
+          },
+          "output": {
+            "usd_per_m": "40.0000",
+            "multiplied_usd_per_m": "40.0000",
+            "rmb_per_m": "40.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "45.0000",
+          "multiplied_usd_per_m": "45.0000",
+          "rmb_per_m": "45.0000"
+        },
+        "comparisons": {
+          "output_input_ratio": "8.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T14:59:18+00:00",
+      "created_at": "2026-05-18T14:59:18+00:00"
+    },
+    {
+      "record_id": "xybbz::gpt-5-4::free",
+      "station_id": "xybbz",
+      "model_name": "gpt-5.4",
+      "group": "free",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.07,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "free",
+        "multiplier": "0.0700",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-free-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.1750",
+            "rmb_per_m": "0.1750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.0500",
+            "rmb_per_m": "1.0500"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "1.2250",
+          "rmb_per_m": "1.2250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:24:01+00:00",
+      "created_at": "2026-05-18T15:24:01+00:00"
+    },
+    {
+      "record_id": "xybbz::gpt-5-4::plus",
+      "station_id": "xybbz",
+      "model_name": "gpt-5.4",
+      "group": "plus",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "plus",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-plus-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "2.6250",
+          "rmb_per_m": "2.6250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:24:02+00:00",
+      "created_at": "2026-05-18T15:24:02+00:00"
+    },
+    {
+      "record_id": "xybbz::gpt-5-4::pro",
+      "station_id": "xybbz",
+      "model_name": "gpt-5.4",
+      "group": "pro",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.25,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "pro",
+        "multiplier": "0.2500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-pro-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.6250",
+            "rmb_per_m": "0.6250"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "3.7500",
+            "rmb_per_m": "3.7500"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "4.3750",
+          "rmb_per_m": "4.3750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:24:02+00:00",
+      "created_at": "2026-05-18T15:24:02+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-4::free",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.4",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-free-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "1.7500",
+          "rmb_per_m": "1.7500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-4::plus",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.4",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.2,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "plus",
+        "multiplier": "0.2000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-plus-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "3.5000",
+          "rmb_per_m": "3.5000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-4::pro",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.4",
+      "group": "pro",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$2.5000/M",
+      "output_price": "$15.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.3,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "pro",
+        "multiplier": "0.3000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-pro-输入$2.5000-输出$15.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.7500",
+            "rmb_per_m": "0.7500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "4.5000",
+            "rmb_per_m": "4.5000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.5000",
+          "multiplied_usd_per_m": "5.2500",
+          "rmb_per_m": "5.2500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-5::free",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.5",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$5.0000/M",
+      "output_price": "$30.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-free-输入$5.0000-输出$30.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.0000",
+          "multiplied_usd_per_m": "3.5000",
+          "rmb_per_m": "3.5000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-5::plus",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.5",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$5.0000/M",
+      "output_price": "$30.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.2,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "plus",
+        "multiplier": "0.2000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-plus-输入$5.0000-输出$30.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.0000",
+            "rmb_per_m": "1.0000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "6.0000",
+            "rmb_per_m": "6.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.0000",
+          "multiplied_usd_per_m": "7.0000",
+          "rmb_per_m": "7.0000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "batch-demo::gpt-5-5::pro",
+      "station_id": "batch-demo",
+      "model_name": "gpt-5.5",
+      "group": "pro",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$5.0000/M",
+      "output_price": "$30.0000/M",
+      "cache_price": null,
+      "cache_read_price": null,
+      "cache_write_price": null,
+      "multiplier": 0.3,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "pro",
+        "multiplier": "0.3000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-pro-输入$5.0000-输出$30.0000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "9.0000",
+            "rmb_per_m": "9.0000"
+          },
+          "cache": null,
+          "cache_read": null,
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.0000",
+          "multiplied_usd_per_m": "10.5000",
+          "rmb_per_m": "10.5000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": null,
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:26:15+00:00",
+      "created_at": "2026-05-18T15:26:15+00:00"
+    },
+    {
+      "record_id": "packycode::gpt-5-4::default",
+      "station_id": "packycode",
+      "model_name": "gpt-5.4",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5/M",
+      "output_price": "$15/M",
+      "cache_price": null,
+      "cache_read_price": "$0.25/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "default",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-default-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "7.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.1250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "8.8750",
+          "rmb_per_m": "8.8750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:29:37+00:00",
+      "created_at": "2026-05-18T15:29:37+00:00"
+    },
+    {
+      "record_id": "packycode::gpt-5-4-high::default",
+      "station_id": "packycode",
+      "model_name": "gpt-5.4-high",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.5/M",
+      "output_price": "$15/M",
+      "cache_price": null,
+      "cache_read_price": "$0.25/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4-high",
+        "group": "default",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-high-default-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "7.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.1250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "8.8750",
+          "rmb_per_m": "8.8750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:29:37+00:00",
+      "created_at": "2026-05-18T15:29:37+00:00"
+    },
+    {
+      "record_id": "packycode::gpt-5-5::default",
+      "station_id": "packycode",
+      "model_name": "gpt-5.5",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5/M",
+      "output_price": "$30/M",
+      "cache_price": null,
+      "cache_read_price": "$0.5/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "default",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-default-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "2.5000",
+            "rmb_per_m": "2.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "15.0000",
+            "rmb_per_m": "15.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "17.7500",
+          "rmb_per_m": "17.7500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:29:37+00:00",
+      "created_at": "2026-05-18T15:29:37+00:00"
+    },
+    {
+      "record_id": "packycode::gpt-5-4-mini::default",
+      "station_id": "packycode",
+      "model_name": "gpt-5.4-mini",
+      "group": "default",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$0.75/M",
+      "output_price": "$4.5/M",
+      "cache_price": null,
+      "cache_read_price": "$0.076/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4-mini",
+        "group": "default",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-mini-default-输入$0.7500-输出$4.5000-缓存读$0.0760",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "0.7500",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "4.5000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.0760",
+            "multiplied_usd_per_m": "0.0380",
+            "rmb_per_m": "0.0380"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "5.3260",
+          "multiplied_usd_per_m": "2.6630",
+          "rmb_per_m": "2.6630"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1013",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:29:38+00:00",
+      "created_at": "2026-05-18T15:29:38+00:00"
+    },
+    {
+      "record_id": "batch-ratio-demo::gpt-5-4::free",
+      "station_id": "batch-ratio-demo",
+      "model_name": "gpt-5.4",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$17.5/M",
+      "output_price": "$105.0/M",
+      "cache_price": null,
+      "cache_read_price": "$1.75/M",
+      "cache_write_price": null,
+      "multiplier": 0.4,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "free",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.4-free-输入$17.5000-输出$105.0000-缓存读$1.7500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "17.5000",
+            "multiplied_usd_per_m": "7.0000",
+            "rmb_per_m": "0.5250"
+          },
+          "output": {
+            "usd_per_m": "105.0000",
+            "multiplied_usd_per_m": "42.0000",
+            "rmb_per_m": "3.1500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "1.7500",
+            "multiplied_usd_per_m": "0.7000",
+            "rmb_per_m": "0.0525"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "124.2500",
+          "multiplied_usd_per_m": "49.7000",
+          "rmb_per_m": "3.7275"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:34:20+00:00",
+      "created_at": "2026-05-18T15:34:20+00:00"
+    },
+    {
+      "record_id": "batch-ratio-demo::gpt-5-4::plus",
+      "station_id": "batch-ratio-demo",
+      "model_name": "gpt-5.4",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$14.0/M",
+      "output_price": "$84.0/M",
+      "cache_price": null,
+      "cache_read_price": "$1.4/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "plus",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.4-plus-输入$14.0000-输出$84.0000-缓存读$1.4000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "14.0000",
+            "multiplied_usd_per_m": "7.0000",
+            "rmb_per_m": "0.5250"
+          },
+          "output": {
+            "usd_per_m": "84.0000",
+            "multiplied_usd_per_m": "42.0000",
+            "rmb_per_m": "3.1500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "1.4000",
+            "multiplied_usd_per_m": "0.7000",
+            "rmb_per_m": "0.0525"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "99.4000",
+          "multiplied_usd_per_m": "49.7000",
+          "rmb_per_m": "3.7275"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:34:20+00:00",
+      "created_at": "2026-05-18T15:34:20+00:00"
+    },
+    {
+      "record_id": "batch-ratio-demo::gpt-5-5::free",
+      "station_id": "batch-ratio-demo",
+      "model_name": "gpt-5.5",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$35.0/M",
+      "output_price": "$21.0/M",
+      "cache_price": null,
+      "cache_read_price": "$3.5/M",
+      "cache_write_price": null,
+      "multiplier": 0.4,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "free",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.5-free-输入$35.0000-输出$21.0000-缓存读$3.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "35.0000",
+            "multiplied_usd_per_m": "14.0000",
+            "rmb_per_m": "1.0500"
+          },
+          "output": {
+            "usd_per_m": "21.0000",
+            "multiplied_usd_per_m": "8.4000",
+            "rmb_per_m": "0.6300"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "3.5000",
+            "multiplied_usd_per_m": "1.4000",
+            "rmb_per_m": "0.1050"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "59.5000",
+          "multiplied_usd_per_m": "23.8000",
+          "rmb_per_m": "1.7850"
+        },
+        "comparisons": {
+          "output_input_ratio": "0.6000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:34:20+00:00",
+      "created_at": "2026-05-18T15:34:20+00:00"
+    },
+    {
+      "record_id": "batch-ratio-demo::gpt-5-5::plus",
+      "station_id": "batch-ratio-demo",
+      "model_name": "gpt-5.5",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$28.0/M",
+      "output_price": "$168.0/M",
+      "cache_price": null,
+      "cache_read_price": "$2.8/M",
+      "cache_write_price": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1.5:20",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "plus",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1.5:20",
+          "unit_rate": "0.0750"
+        },
+        "copy_text": "gpt-5.5-plus-输入$28.0000-输出$168.0000-缓存读$2.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "28.0000",
+            "multiplied_usd_per_m": "14.0000",
+            "rmb_per_m": "1.0500"
+          },
+          "output": {
+            "usd_per_m": "168.0000",
+            "multiplied_usd_per_m": "84.0000",
+            "rmb_per_m": "6.3000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "2.8000",
+            "multiplied_usd_per_m": "1.4000",
+            "rmb_per_m": "0.1050"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "198.8000",
+          "multiplied_usd_per_m": "99.4000",
+          "rmb_per_m": "7.4550"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:34:20+00:00",
+      "created_at": "2026-05-18T15:34:20+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-4::free",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.4",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "2.5/1M Tokens",
+      "output_price": "15/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.25/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-free-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0250",
+            "rmb_per_m": "0.0250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "1.7750",
+          "rmb_per_m": "1.7750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:37:59+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-4-mini::free",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.4-mini",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "0.75/1M Tokens",
+      "output_price": "4.5/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.08/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4-mini",
+        "group": "free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-mini-free-输入$0.7500-输出$4.5000-缓存读$0.0800",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "0.7500",
+            "multiplied_usd_per_m": "0.0750",
+            "rmb_per_m": "0.0750"
+          },
+          "output": {
+            "usd_per_m": "4.5000",
+            "multiplied_usd_per_m": "0.4500",
+            "rmb_per_m": "0.4500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.0800",
+            "multiplied_usd_per_m": "0.0080",
+            "rmb_per_m": "0.0080"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "5.3300",
+          "multiplied_usd_per_m": "0.5330",
+          "rmb_per_m": "0.5330"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1067",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:37:59+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-5::free",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.5",
+      "group": "free",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "5/1M Tokens",
+      "output_price": "30/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.5/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-free-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0500",
+            "rmb_per_m": "0.0500"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "3.5500",
+          "rmb_per_m": "3.5500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:37:59+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-4::plus",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.4",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "2.5/1M Tokens",
+      "output_price": "15/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.25/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "plus",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-plus-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0375",
+            "rmb_per_m": "0.0375"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "2.6625",
+          "rmb_per_m": "2.6625"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:52:59+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-4-mini::plus",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.4-mini",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "0.75/1M Tokens",
+      "output_price": "4.5/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.08/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4-mini",
+        "group": "plus",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-mini-plus-输入$0.7500-输出$4.5000-缓存读$0.0800",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "0.7500",
+            "multiplied_usd_per_m": "0.1125",
+            "rmb_per_m": "0.1125"
+          },
+          "output": {
+            "usd_per_m": "4.5000",
+            "multiplied_usd_per_m": "0.6750",
+            "rmb_per_m": "0.6750"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.0800",
+            "multiplied_usd_per_m": "0.0120",
+            "rmb_per_m": "0.0120"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "5.3300",
+          "multiplied_usd_per_m": "0.7995",
+          "rmb_per_m": "0.7995"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1067",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:52:59+00:00"
+    },
+    {
+      "record_id": "api-68886868-xyz::gpt-5-5::plus",
+      "station_id": "api-68886868-xyz",
+      "model_name": "gpt-5.5",
+      "group": "plus",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "5/1M Tokens",
+      "output_price": "30/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "0.5/1M Tokens",
+      "cache_write_price": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "plus",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-plus-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.7500",
+            "rmb_per_m": "0.7500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "4.5000",
+            "rmb_per_m": "4.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0750",
+            "rmb_per_m": "0.0750"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "5.3250",
+          "rmb_per_m": "5.3250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-18T15:52:59+00:00",
+      "created_at": "2026-05-18T15:52:59+00:00"
+    }
+  ]
+}

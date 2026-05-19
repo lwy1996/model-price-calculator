@@ -1,0 +1,289 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+from site_price_registry import load_registry, upsert_record
+
+
+SECTION_KEYWORDS = {"站点名称", "官网", "API", "倍率", "备注", "充值比"}
+
+
+def normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def to_decimal(value: Any) -> Decimal:
+    text = normalize_text(value)
+    match = re.search(r"-?\d+(?:\.\d+)?", text.replace(",", ""))
+    if not match:
+        raise ValueError(f"无法解析数值: {value}")
+    return Decimal(match.group(0))
+
+
+def format_price_like(original: str, numeric: Decimal) -> str:
+    text = normalize_text(original)
+    prefix = "$" if "$" in text else ("¥" if "¥" in text or "￥" in text else "")
+    suffix = "/M" if "/M" in text.upper() else ("/1M Tokens" if "1M" in text.upper() else "")
+    if numeric == numeric.to_integral():
+        rendered = str(numeric.quantize(Decimal("1")))
+    else:
+        rendered = format(numeric.normalize(), "f").rstrip("0").rstrip(".")
+    return f"{prefix}{rendered}{suffix}"
+
+
+def read_text(path: str) -> str:
+    with open(path, "r", encoding="utf-8-sig") as file:
+        return file.read()
+
+
+def parse_station_info(text: str) -> Dict[str, Any]:
+    station: Dict[str, Any] = {}
+    patterns = {
+        "name": r"站点名称[:：]\s*(.+)",
+        "website": r"官网[:：]\s*(.+)",
+        "api_base_url": r"API[:：]\s*(.+)",
+        "notes": r"备注[:：]\s*(.+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.I)
+        if match:
+            station[key] = match.group(1).strip()
+
+    if station.get("name"):
+        station["alias"] = station["name"]
+    return station
+
+
+def parse_group_multipliers(text: str) -> Dict[str, float]:
+    match = re.search(r"倍率[:：]\s*(.+)", text, re.I)
+    if not match:
+        return {}
+
+    line = match.group(1).strip()
+    results: Dict[str, float] = {}
+    for group, value in re.findall(r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)", line, re.I):
+        results[group.lower()] = float(value)
+
+    if not results:
+        numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", line)
+        if numeric:
+            results["default"] = float(numeric.group(1))
+    return results
+
+
+def parse_recharge_ratio(text: str) -> str:
+    match = re.search(r"充值比[:：]\s*([0-9.]+\s*:\s*[0-9.]+)", text, re.I)
+    if not match:
+        return "1:1"
+    return match.group(1).replace(" ", "")
+
+
+def is_post_multiplier_pricing(text: str) -> bool:
+    keywords = [
+        "倍率后的价格",
+        "以下都是倍率后的价格",
+        "下面都是倍率后的价格",
+        "以下价格都是倍率后的",
+    ]
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+def detect_declared_group_scope(text: str) -> str:
+    patterns = [
+        r"以下都是\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+        r"以下为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+        r"下面都是\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+        r"下面为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1).strip().lower()
+    return ""
+
+
+def parse_price_fields(text: str) -> Dict[str, str]:
+    fields: Dict[str, str] = {}
+    patterns = {
+        "input_price": r"输入(?:价格)?\s*([$¥￥]?\s*[0-9.]+(?:\s*/\s*(?:1M\s*Tokens|M))?)",
+        "output_price": r"(?:补全价格|输出(?:价格)?)\s*([$¥￥]?\s*[0-9.]+(?:\s*/\s*(?:1M\s*Tokens|M))?)",
+        "cache_read_price": r"缓存读取(?:价格)?\s*([$¥￥]?\s*[0-9.]+(?:\s*/\s*(?:1M\s*Tokens|M))?)",
+        "cache_write_price": r"缓存创建(?:价格)?\s*([$¥￥]?\s*[0-9.]+(?:\s*/\s*(?:1M\s*Tokens|M))?)",
+        "cache_price": r"缓存(?:价格)?\s*([$¥￥]?\s*[0-9.]+(?:\s*/\s*(?:1M\s*Tokens|M))?)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.I)
+        if match:
+            fields[key] = match.group(1).replace(" ", "")
+    return fields
+
+
+def merge_non_empty(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if value not in (None, ""):
+            merged[key] = value
+    return merged
+
+
+def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
+    lines = text.splitlines(keepends=True)
+    offset = 0
+    boundaries: List[Dict[str, Any]] = []
+    header_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and stripped not in SECTION_KEYWORDS and header_pattern.fullmatch(stripped):
+            boundaries.append(
+                {
+                    "model_name": stripped,
+                    "start": offset,
+                    "end": offset + len(line),
+                }
+            )
+        offset += len(line)
+
+    if not boundaries:
+        return text, []
+
+    preamble = text[: boundaries[0]["start"]]
+    sections: List[Dict[str, Any]] = []
+    for index, boundary in enumerate(boundaries):
+        body_start = boundary["end"]
+        body_end = boundaries[index + 1]["start"] if index + 1 < len(boundaries) else len(text)
+        sections.append(
+            {
+                "model_name": boundary["model_name"],
+                "body": text[body_start:body_end].strip(),
+            }
+        )
+    return preamble, sections
+
+
+def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    preamble, sections = split_model_sections(text)
+    global_context = {
+        "group_multipliers": parse_group_multipliers(preamble),
+        "recharge_ratio": parse_recharge_ratio(preamble),
+        "post_multiplier_pricing": is_post_multiplier_pricing(preamble),
+        "scoped_group": detect_declared_group_scope(preamble),
+        "price_fields": parse_price_fields(preamble),
+    }
+
+    blocks = []
+    for section in sections:
+        body = section["body"]
+        price_fields = merge_non_empty(global_context["price_fields"], parse_price_fields(body))
+        model_data: Dict[str, Any] = {
+            "model_name": section["model_name"],
+            "group_multipliers": parse_group_multipliers(body) or global_context["group_multipliers"],
+            "recharge_ratio": parse_recharge_ratio(body) if re.search(r"充值比[:：]", body, re.I) else global_context["recharge_ratio"],
+            "post_multiplier_pricing": is_post_multiplier_pricing(body) or global_context["post_multiplier_pricing"],
+            "scoped_group": detect_declared_group_scope(body) or global_context["scoped_group"],
+        }
+        model_data.update(price_fields)
+        if any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price")):
+            blocks.append(model_data)
+
+    return global_context, blocks
+
+
+def revert_post_multiplier_price(price_text: str, multiplier: float) -> str:
+    if multiplier in (0, 0.0):
+        return price_text
+    numeric = to_decimal(price_text)
+    reverted = numeric / Decimal(str(multiplier))
+    return format_price_like(price_text, reverted)
+
+
+def resolve_source_group(block: Dict[str, Any], groups: Dict[str, float]) -> str:
+    scoped_group = normalize_text(block.get("scoped_group")).lower()
+    if scoped_group:
+        return scoped_group
+    if block.get("post_multiplier_pricing") and len(groups) == 1:
+        return next(iter(groups))
+    return ""
+
+
+def build_batch_payload(text: str) -> Dict[str, Any]:
+    global_context, model_blocks = parse_model_blocks(text)
+    preamble, _ = split_model_sections(text)
+    station = parse_station_info(preamble or text)
+    station["group_multipliers"] = global_context.get("group_multipliers") or {}
+
+    entries = []
+    for model in model_blocks:
+        groups = model.get("group_multipliers") or station.get("group_multipliers") or {"default": 1.0}
+        source_group = resolve_source_group(model, groups)
+        target_groups = groups
+        if source_group and not model.get("post_multiplier_pricing"):
+            target_groups = {source_group: groups.get(source_group, 1.0)}
+
+        base_prices = {
+            key: model.get(key)
+            for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price")
+            if model.get(key)
+        }
+        if model.get("post_multiplier_pricing") and source_group:
+            source_multiplier = groups.get(source_group, 1.0)
+            for price_key, price_value in list(base_prices.items()):
+                base_prices[price_key] = revert_post_multiplier_price(price_value, source_multiplier)
+
+        for group, multiplier in target_groups.items():
+            pricing = {
+                "model_name": model.get("model_name"),
+                "group": group,
+                "multiplier": multiplier,
+                "recharge_ratio": model.get("recharge_ratio") or global_context.get("recharge_ratio") or "1:1",
+            }
+            pricing.update(base_prices)
+            entries.append(
+                {
+                    "station": station,
+                    "pricing": pricing,
+                    "source": "batch-ingest",
+                }
+            )
+
+    return {
+        "station": station,
+        "entries": entries,
+    }
+
+
+def ingest_batch(text: str) -> Dict[str, Any]:
+    parsed = build_batch_payload(text)
+    registry = load_registry()
+    results = []
+    for entry in parsed["entries"]:
+        results.append(upsert_record(registry, entry))
+    return {
+        "station": parsed["station"],
+        "count": len(results),
+        "results": results,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Batch ingest site price text.")
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--text", help="Raw batch text")
+    source_group.add_argument("--text-file", help="Path to raw batch text file")
+    args = parser.parse_args()
+
+    text = args.text if args.text else read_text(args.text_file)
+    print(json.dumps(ingest_batch(text), ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

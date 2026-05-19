@@ -1,0 +1,3 @@
+display_name: Model Price Calculator
+short_description: Compute token pricing and ratio conversions.
+default_prompt: Use this skill to collect missing pricing fields, compute multiplier and recharge-ratio conversions, and produce copyable comparison output.
