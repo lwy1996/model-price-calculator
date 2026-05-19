@@ -467,6 +467,24 @@
       "notes": "",
       "created_at": "2026-05-19T07:29:22+00:00",
       "updated_at": "2026-05-19T07:29:22+00:00"
+    },
+    {
+      "station_id": "78code",
+      "name": "78Code",
+      "aliases": [
+        "78Code",
+        "https://api.78code.cc"
+      ],
+      "website": "https://api.78code.cc",
+      "api_base_url": "",
+      "group_multipliers": {
+        "codex-b": 0.25,
+        "codex-c": 0.2
+      },
+      "is_test_data": false,
+      "notes": "赠送5-已添加QQ群-claudecode-78code售后群",
+      "created_at": "2026-05-19T07:57:44+00:00",
+      "updated_at": "2026-05-19T08:00:49+00:00"
     }
   ],
   "price_records": [
@@ -6570,6 +6588,242 @@
       },
       "updated_at": "2026-05-19T07:29:22+00:00",
       "created_at": "2026-05-19T07:29:22+00:00"
+    },
+    {
+      "record_id": "78code::gpt-5-4::codex-b",
+      "station_id": "78code",
+      "model_name": "gpt-5.4",
+      "group": "codex-b",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥2.5/1M Tokens",
+      "output_price": "¥15/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.252/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "pro号池",
+      "multiplier": 0.25,
+      "recharge_ratio": "8.5:10",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-b",
+        "multiplier": "0.2500",
+        "recharge_ratio": {
+          "display": "8.5:10",
+          "unit_rate": "0.8500"
+        },
+        "copy_text": "gpt-5.4-codex-b-输入$2.5000-输出$15.0000-缓存读$0.2520",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.6250",
+            "rmb_per_m": "0.5313"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "3.7500",
+            "rmb_per_m": "3.1875"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2520",
+            "multiplied_usd_per_m": "0.0630",
+            "rmb_per_m": "0.0536"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7520",
+          "multiplied_usd_per_m": "4.4380",
+          "rmb_per_m": "3.7723"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1008",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:00:49+00:00",
+      "created_at": "2026-05-19T07:57:44+00:00"
+    },
+    {
+      "record_id": "78code::gpt-5-5::codex-b",
+      "station_id": "78code",
+      "model_name": "gpt-5.5",
+      "group": "codex-b",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥5/1M Tokens",
+      "output_price": "¥30/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.5/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "pro号池",
+      "multiplier": 0.25,
+      "recharge_ratio": "8.5:10",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex-b",
+        "multiplier": "0.2500",
+        "recharge_ratio": {
+          "display": "8.5:10",
+          "unit_rate": "0.8500"
+        },
+        "copy_text": "gpt-5.5-codex-b-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.0625"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "6.3750"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.1063"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "8.8750",
+          "rmb_per_m": "7.5438"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:00:49+00:00",
+      "created_at": "2026-05-19T07:57:44+00:00"
+    },
+    {
+      "record_id": "78code::gpt-5-4::codex-c",
+      "station_id": "78code",
+      "model_name": "gpt-5.4",
+      "group": "codex-c",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥2.5/1M Tokens",
+      "output_price": "¥15/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.25/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "plus号池",
+      "multiplier": 0.2,
+      "recharge_ratio": "8.5:10",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-c",
+        "multiplier": "0.2000",
+        "recharge_ratio": {
+          "display": "8.5:10",
+          "unit_rate": "0.8500"
+        },
+        "copy_text": "gpt-5.4-codex-c-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.4250"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "2.5500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0500",
+            "rmb_per_m": "0.0425"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "3.5500",
+          "rmb_per_m": "3.0175"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:00:49+00:00",
+      "created_at": "2026-05-19T07:57:44+00:00"
+    },
+    {
+      "record_id": "78code::gpt-5-5::codex-c",
+      "station_id": "78code",
+      "model_name": "gpt-5.5",
+      "group": "codex-c",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "¥5/1M Tokens",
+      "output_price": "¥30/1M Tokens",
+      "cache_price": null,
+      "cache_read_price": "¥0.5/1M Tokens",
+      "cache_write_price": null,
+      "group_note": "plus号池",
+      "multiplier": 0.2,
+      "recharge_ratio": "8.5:10",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex-c",
+        "multiplier": "0.2000",
+        "recharge_ratio": {
+          "display": "8.5:10",
+          "unit_rate": "0.8500"
+        },
+        "copy_text": "gpt-5.5-codex-c-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.0000",
+            "rmb_per_m": "0.8500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "6.0000",
+            "rmb_per_m": "5.1000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.1000",
+            "rmb_per_m": "0.0850"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "7.1000",
+          "rmb_per_m": "6.0350"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T08:00:49+00:00",
+      "created_at": "2026-05-19T07:57:44+00:00"
     }
   ]
 }
