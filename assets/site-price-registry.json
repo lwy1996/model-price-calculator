@@ -26,6 +26,7 @@
         "https://sub2api.toioto.org"
       ],
       "website": "https://sub2api.toioto.org",
+      "recharge_ratio": "1:2",
       "api_base_url": "https://sub2api.toioto.org",
       "notes": "新注册赠送10",
       "created_at": "2026-05-18T13:55:54+00:00",

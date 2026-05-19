@@ -282,6 +282,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
     preamble, _ = split_model_sections(text)
     station = parse_station_info(preamble or text)
     station["group_multipliers"] = global_context.get("group_multipliers") or {}
+    station["recharge_ratio"] = global_context.get("recharge_ratio") or "1:1"
 
     entries = []
     for model in model_blocks:
@@ -307,7 +308,6 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
                 "model_name": model.get("model_name"),
                 "group": group,
                 "multiplier": multiplier,
-                "recharge_ratio": model.get("recharge_ratio") or global_context.get("recharge_ratio") or "1:1",
                 "group_note": group_notes.get(group) or model.get("group_note") or "",
             }
             pricing.update(base_prices)

@@ -114,6 +114,28 @@ def unique_strings(values: List[str]) -> List[str]:
     return result
 
 
+def resolve_station_recharge_ratio(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> str:
+    station_ratio = normalize_text(station.get("recharge_ratio"))
+    if station_ratio:
+        return station_ratio
+    if record is not None:
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return "1:1"
+
+
+def resolve_station_summary_recharge_ratio(station: Dict[str, Any], summary: Dict[str, Any]) -> str:
+    station_ratio = normalize_text(station.get("recharge_ratio"))
+    if station_ratio:
+        return station_ratio
+    for record in summary.get("records", []):
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return "1:1"
+
+
 def normalize_group_multiplier_map(value: Any) -> Dict[str, float]:
     if not isinstance(value, dict):
         return {}
@@ -218,6 +240,7 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
             ),
             "aliases": unique_strings(build_station_identifiers(station_payload, include_api=False)),
             "website": normalize_text(station_payload.get("website")),
+            "recharge_ratio": normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1",
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
             "notes": normalize_text(station_payload.get("notes")),
@@ -229,6 +252,11 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
 
     station["name"] = normalize_text(station_payload.get("name") or station.get("name"))
     station["website"] = normalize_text(station_payload.get("website") or station.get("website"))
+    station["recharge_ratio"] = (
+        normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
+        or normalize_text(station.get("recharge_ratio"))
+        or "1:1"
+    )
     incoming_group_multipliers = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
     if incoming_group_multipliers:
         merged_group_multipliers = dict(station.get("group_multipliers") or {})
@@ -263,6 +291,12 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             station["website"] = value
             changed_fields.append("website")
 
+    if "recharge_ratio" in station_payload or "充值比" in station_payload:
+        value = normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1"
+        if value != resolve_station_recharge_ratio(station):
+            station["recharge_ratio"] = value
+            changed_fields.append("recharge_ratio")
+
     if "group_multipliers" in station_payload:
         value = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
         if value and value != (station.get("group_multipliers") or {}):
@@ -287,6 +321,8 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         changed_fields.append("aliases")
 
     station["updated_at"] = timestamp
+    if "recharge_ratio" in changed_fields:
+        recompute_station_records(registry, station, timestamp)
     save_registry(registry)
     return {
         "station": station,
@@ -344,8 +380,40 @@ def infer_pricing_defaults(
     return matched_records[0]
 
 
+def build_record_pricing_payload(station: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "model_name": record.get("model_name"),
+        "group": record.get("group"),
+        "input_price": record.get("input_price"),
+        "output_price": record.get("output_price"),
+        "cache_price": record.get("cache_price"),
+        "cache_read_price": record.get("cache_read_price"),
+        "cache_write_price": record.get("cache_write_price"),
+        "group_note": record.get("group_note"),
+        "multiplier": record.get("multiplier"),
+        "recharge_ratio": resolve_station_recharge_ratio(station, record),
+        "sale_price": record.get("sale_price"),
+    }
+
+
+def recompute_station_records(registry: Dict[str, Any], station: Dict[str, Any], timestamp: Optional[str] = None) -> None:
+    station_id = station.get("station_id")
+    if not station_id:
+        return
+    updated_at = timestamp or now_iso()
+    for index, record in enumerate(registry.get("price_records", [])):
+        if record.get("station_id") != station_id:
+            continue
+        refreshed_record = deepcopy(record)
+        refreshed_record["recharge_ratio"] = resolve_station_recharge_ratio(station, record)
+        refreshed_record["computed"] = compute(build_record_pricing_payload(station, refreshed_record))
+        refreshed_record["updated_at"] = updated_at
+        registry["price_records"][index] = refreshed_record
+
+
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
-    computed = record.get("computed", {})
+    station = next((item for item in registry.get("stations", []) if item.get("station_id") == record.get("station_id")), {})
+    computed = compute(build_record_pricing_payload(station, record))
     dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions", {}), dict) else {}
     input_dimension = dimensions.get("input") or {}
     output_dimension = dimensions.get("output") or {}
@@ -365,7 +433,6 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
     if numeric is None:
         return None
 
-    station = next((item for item in registry.get("stations", []) if item.get("station_id") == record.get("station_id")), {})
     return {
         "station_id": record.get("station_id"),
         "station_name": station.get("name") or record.get("station_id"),
@@ -450,6 +517,13 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         raise ValueError("缺少 pricing 对象")
 
     station = upsert_station(registry, station_payload)
+    station_ratio_override = (
+        normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
+        or normalize_text(payload.get("recharge_ratio") or payload.get("充值比"))
+        or normalize_text(pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比"))
+    )
+    if station_ratio_override:
+        station["recharge_ratio"] = station_ratio_override
     pricing_payload.setdefault("model_name", pricing_payload.get("模型名称") or "gpt5.4")
     model_name = pricing_payload.get("model_name")
     explicit_group = normalize_text(pricing_payload.get("group") or pricing_payload.get("分组"))
@@ -469,6 +543,8 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         station_multiplier = station_group_multipliers.get(group.lower())
         if station_multiplier not in (None, ""):
             pricing_payload["multiplier"] = station_multiplier
+
+    pricing_payload["recharge_ratio"] = resolve_station_recharge_ratio(station, inherited_record)
 
     pricing_payload = apply_official_model_defaults(pricing_payload)
 
@@ -501,7 +577,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         ),
         "group_note": pricing_payload.get("group_note") or pricing_payload.get("分组备注"),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
-        "recharge_ratio": pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比") or "1:1",
+        "recharge_ratio": resolve_station_recharge_ratio(station),
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
         "tags": unique_strings(ensure_list(payload.get("tags"))),
         "computed": computed,
@@ -554,7 +630,6 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_write_price": ["cache_write_price", "缓存创建价格"],
         "group_note": ["group_note", "分组备注"],
         "multiplier": ["multiplier", "倍率"],
-        "recharge_ratio": ["recharge_ratio", "充值比"],
         "sale_price": ["sale_price", "售价", "站点售价"],
     }
 
@@ -568,9 +643,17 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_write_price": record.get("cache_write_price"),
         "group_note": record.get("group_note"),
         "multiplier": record.get("multiplier"),
-        "recharge_ratio": record.get("recharge_ratio"),
+        "recharge_ratio": resolve_station_recharge_ratio(station, record),
         "sale_price": record.get("sale_price"),
     }
+
+    station_ratio_changed = False
+    if "recharge_ratio" in payload or "充值比" in payload:
+        value = normalize_text(payload.get("recharge_ratio") or payload.get("充值比")) or "1:1"
+        if value != resolve_station_recharge_ratio(station):
+            station["recharge_ratio"] = value
+            station_ratio_changed = True
+        pricing_payload["recharge_ratio"] = resolve_station_recharge_ratio(station)
 
     for target_field, source_keys in field_map.items():
         for source_key in source_keys:
@@ -591,13 +674,16 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "cache_write_price": pricing_payload.get("cache_write_price"),
             "group_note": pricing_payload.get("group_note"),
             "multiplier": pricing_payload.get("multiplier"),
-            "recharge_ratio": pricing_payload.get("recharge_ratio"),
+            "recharge_ratio": resolve_station_recharge_ratio(station),
             "sale_price": pricing_payload.get("sale_price"),
             "computed": recomputed,
             "updated_at": now_iso(),
         }
     )
     registry["price_records"][record_index] = record
+    if station_ratio_changed:
+        station["updated_at"] = record["updated_at"]
+        recompute_station_records(registry, station, record["updated_at"])
     save_registry(registry)
 
     return {
@@ -691,8 +777,8 @@ def format_rmb_per_m(value: Any) -> str:
     return f"{trimmed}/M"
 
 
-def build_computed_price_text(record: Dict[str, Any]) -> str:
-    computed = record.get("computed", {})
+def build_computed_price_text(record: Dict[str, Any], computed: Optional[Dict[str, Any]] = None) -> str:
+    computed = computed or record.get("computed", {})
     dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
     parts = []
     input_dimension = dimensions.get("input") or {}
@@ -720,12 +806,14 @@ def append_station_markdown_block(
     index: int,
 ) -> None:
     website = normalize_text(station.get("website")) or "未记录"
+    recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
     notes = normalize_text(station.get("notes")) or "无"
     marker = "（测试）" if is_test_station(station) else ""
 
     lines.append(f"## {index}. {station.get('name') or station.get('station_id')}{marker}")
     lines.append("")
     lines.append(f"- 官网：{website}")
+    lines.append(f"- 充值比：`{recharge_ratio}`")
     lines.append(f"- 备注：{notes}")
     if is_test_station(station):
         lines.append("- 标识：测试数据")
@@ -735,34 +823,33 @@ def append_station_markdown_block(
 
     has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
     if has_group_note:
-        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 充值比 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---|---:|---|---|---:|")
+        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
+        lines.append("|---|---|---|---:|---|---:|")
     else:
-        lines.append("| 模型 | 分组 | 倍率 | 充值比 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---:|---|---|---:|")
+        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
+        lines.append("|---|---|---:|---|---:|")
 
     for record in summary["records"]:
-        computed = record.get("computed", {})
+        computed = compute(build_record_pricing_payload(station, record))
         multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
-        recharge_ratio = normalize_text(record.get("recharge_ratio")) or "1:1"
         group_note = normalize_text(record.get("group_note")) or "-"
         summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
         if has_group_note:
             lines.append(
                 f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
-                f"`{recharge_ratio}` | {build_computed_price_text(record)} | `{summary_cost}` |"
+                f"{build_computed_price_text(record, computed)} | `{summary_cost}` |"
             )
         else:
             lines.append(
                 f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
-                f"`{recharge_ratio}` | {build_computed_price_text(record)} | `{summary_cost}` |"
+                f"{build_computed_price_text(record, computed)} | `{summary_cost}` |"
             )
 
     if not summary["records"]:
         if has_group_note:
-            lines.append("| - | - | - | - | - | 暂无价格记录 | - |")
-        else:
             lines.append("| - | - | - | - | 暂无价格记录 | - |")
+        else:
+            lines.append("| - | - | - | 暂无价格记录 | - |")
     lines.append("")
 
 

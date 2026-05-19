@@ -115,8 +115,8 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["multiplier"] = patch["multiplier"]
     if patch.get("recharge_ratio"):
-        patch["pricing"] = patch.get("pricing") or {}
-        patch["pricing"]["recharge_ratio"] = patch["recharge_ratio"]
+        patch["station"] = patch.get("station") or {}
+        patch["station"]["recharge_ratio"] = patch["recharge_ratio"]
     if patch.get("sale_price"):
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["sale_price"] = patch["sale_price"]

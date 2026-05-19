@@ -50,6 +50,8 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
 
 def build_upsert_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
     station = raw.get("station") or {}
+    if raw.get("recharge_ratio"):
+        station["recharge_ratio"] = raw["recharge_ratio"]
     pricing = raw.get("pricing")
     if pricing is None:
         extracted = extract_payload(raw.get("raw_text") or "")
@@ -61,8 +63,6 @@ def build_upsert_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
         pricing["group"] = raw["group"]
     if raw.get("multiplier") is not None:
         pricing["multiplier"] = raw["multiplier"]
-    if raw.get("recharge_ratio"):
-        pricing["recharge_ratio"] = raw["recharge_ratio"]
     if raw.get("sale_price"):
         pricing["sale_price"] = raw["sale_price"]
     if raw.get("group_note"):
