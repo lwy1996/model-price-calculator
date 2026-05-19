@@ -180,7 +180,7 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
     lines = text.splitlines(keepends=True)
     offset = 0
     boundaries: List[Dict[str, Any]] = []
-    header_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
+    header_pattern = re.compile(r"^(gpt-[A-Za-z0-9.\-]+)(?:\s+(.*))?$", re.I)
     active_group_scope = ""
 
     for line in lines:
@@ -188,13 +188,16 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
         declared_group_scope = detect_declared_group_scope(stripped)
         if declared_group_scope:
             active_group_scope = declared_group_scope
-        if stripped and stripped not in SECTION_KEYWORDS and header_pattern.fullmatch(stripped):
+        header_match = header_pattern.fullmatch(stripped) if stripped and stripped not in SECTION_KEYWORDS else None
+        if header_match:
+            inline_body = normalize_text(header_match.group(2))
             boundaries.append(
                 {
-                    "model_name": stripped,
+                    "model_name": header_match.group(1),
                     "start": offset,
                     "end": offset + len(line),
                     "scoped_group": active_group_scope,
+                    "inline_body": inline_body,
                 }
             )
         offset += len(line)
@@ -207,10 +210,14 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
     for index, boundary in enumerate(boundaries):
         body_start = boundary["end"]
         body_end = boundaries[index + 1]["start"] if index + 1 < len(boundaries) else len(text)
+        body = text[body_start:body_end].strip()
+        inline_body = normalize_text(boundary.get("inline_body"))
+        if inline_body:
+            body = f"{inline_body}\n{body}".strip()
         sections.append(
             {
                 "model_name": boundary["model_name"],
-                "body": text[body_start:body_end].strip(),
+                "body": body,
                 "scoped_group": boundary.get("scoped_group", ""),
             }
         )

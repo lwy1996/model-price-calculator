@@ -377,6 +377,24 @@
       "notes": "",
       "created_at": "2026-05-19T06:59:30+00:00",
       "updated_at": "2026-05-19T06:59:30+00:00"
+    },
+    {
+      "station_id": "aspirinnewapi",
+      "name": "AspirinNewAPI",
+      "aliases": [
+        "AspirinNewAPI",
+        "https://api.aspirin.cc"
+      ],
+      "website": "https://api.aspirin.cc",
+      "api_base_url": "",
+      "group_multipliers": {
+        "codex-v1": 0.15,
+        "codex-v0": 0.5
+      },
+      "is_test_data": false,
+      "notes": "",
+      "created_at": "2026-05-19T07:05:22+00:00",
+      "updated_at": "2026-05-19T07:05:22+00:00"
     }
   ],
   "price_records": [
@@ -5359,6 +5377,183 @@
       },
       "updated_at": "2026-05-19T06:59:30+00:00",
       "created_at": "2026-05-19T06:59:30+00:00"
+    },
+    {
+      "record_id": "aspirinnewapi::gpt-5-4::codex-v1",
+      "station_id": "aspirinnewapi",
+      "model_name": "gpt-5.4",
+      "group": "codex-v1",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$2.500000/1Mtokens",
+      "output_price": "$15.000000/1Mtokens",
+      "cache_price": null,
+      "cache_read_price": "$0.250000/1Mtokens",
+      "cache_write_price": null,
+      "group_note": "仅仅支持gpt-5.4",
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-v1",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex-v1-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0375",
+            "rmb_per_m": "0.0375"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "2.6625",
+          "rmb_per_m": "2.6625"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T07:05:22+00:00",
+      "created_at": "2026-05-19T07:05:22+00:00"
+    },
+    {
+      "record_id": "aspirinnewapi::gpt-5-4::codex-v0",
+      "station_id": "aspirinnewapi",
+      "model_name": "gpt-5.4",
+      "group": "codex-v0",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$2.500000/1Mtokens",
+      "output_price": "$15.000000/1Mtokens",
+      "cache_price": null,
+      "cache_read_price": "$0.250000/1Mtokens",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-v0",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex-v0-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "7.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.1250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "8.8750",
+          "rmb_per_m": "8.8750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T07:05:22+00:00",
+      "created_at": "2026-05-19T07:05:22+00:00"
+    },
+    {
+      "record_id": "aspirinnewapi::gpt-5-5::codex-v0",
+      "station_id": "aspirinnewapi",
+      "model_name": "gpt-5.5",
+      "group": "codex-v0",
+      "source": "batch-ingest",
+      "currency_hint": "",
+      "input_price": "$5.000000/1Mtokens",
+      "output_price": "$40.000000/1Mtokens",
+      "cache_price": null,
+      "cache_read_price": "$0.500000/1Mtokens",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex-v0",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex-v0-输入$5.0000-输出$40.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "2.5000",
+            "rmb_per_m": "2.5000"
+          },
+          "output": {
+            "usd_per_m": "40.0000",
+            "multiplied_usd_per_m": "20.0000",
+            "rmb_per_m": "20.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "45.5000",
+          "multiplied_usd_per_m": "22.7500",
+          "rmb_per_m": "22.7500"
+        },
+        "comparisons": {
+          "output_input_ratio": "8.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T07:05:22+00:00",
+      "created_at": "2026-05-19T07:05:22+00:00"
     }
   ]
 }
