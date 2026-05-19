@@ -799,6 +799,15 @@ def build_computed_price_text(record: Dict[str, Any], computed: Optional[Dict[st
     return " · ".join(parts) if parts else "未记录"
 
 
+def resolve_station_api_url(station: Dict[str, Any]) -> str:
+    return (
+        normalize_text(station.get("api_base_url"))
+        or normalize_text(station.get("api_url"))
+        or normalize_text(station.get("base_url"))
+        or "未记录"
+    )
+
+
 def append_station_markdown_block(
     lines: List[str],
     station: Dict[str, Any],
@@ -806,19 +815,18 @@ def append_station_markdown_block(
     index: int,
 ) -> None:
     website = normalize_text(station.get("website")) or "未记录"
-    recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
+    api_url = resolve_station_api_url(station)
     notes = normalize_text(station.get("notes")) or "无"
     marker = "（测试）" if is_test_station(station) else ""
 
-    lines.append(f"## {index}. {station.get('name') or station.get('station_id')}{marker}")
-    lines.append("")
-    lines.append(f"- 官网：{website}")
-    lines.append(f"- 充值比：`{recharge_ratio}`")
-    lines.append(f"- 备注：{notes}")
+    lines.append(f"{index}. {station.get('name') or station.get('station_id')}{marker}")
+    lines.append(f"官网：{website}")
+    lines.append(f"API：{api_url}")
+    lines.append(f"备注：{notes}")
     if is_test_station(station):
-        lines.append("- 标识：测试数据")
-    lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
-    lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
+        lines.append("标识：测试数据")
+    lines.append(f"创建时间：{iso_to_display(station.get('created_at'))}")
+    lines.append(f"最后更新：{iso_to_display(station.get('updated_at'))}")
     lines.append("")
 
     has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
@@ -836,13 +844,13 @@ def append_station_markdown_block(
         summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
         if has_group_note:
             lines.append(
-                f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
-                f"{build_computed_price_text(record, computed)} | `{summary_cost}` |"
+                f"| {record.get('model_name')} | {record.get('group')} | {group_note} | {multiplier} | "
+                f"{build_computed_price_text(record, computed)} | {summary_cost} |"
             )
         else:
             lines.append(
-                f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
-                f"{build_computed_price_text(record, computed)} | `{summary_cost}` |"
+                f"| {record.get('model_name')} | {record.get('group')} | {multiplier} | "
+                f"{build_computed_price_text(record, computed)} | {summary_cost} |"
             )
 
     if not summary["records"]:
@@ -871,22 +879,14 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
         stations = filtered
 
     stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
-    test_station_count = sum(1 for station in stations if is_test_station(station))
-    real_station_count = len(stations) - test_station_count
     lines = []
-    lines.append("# 中转站清单")
-    lines.append("")
-    lines.append(f"- 站点总数：`{len(stations)}`")
-    lines.append(f"- 正式站点：`{real_station_count}`")
-    lines.append(f"- 测试站点：`{test_station_count}`")
-    lines.append(f"- 价格记录总数：`{len(registry.get('price_records', []))}`")
-    if keyword:
-        lines.append(f"- 过滤关键字：`{keyword}`")
-    lines.append("")
 
     for index, station in enumerate(stations, start=1):
         summary = station_record_summary(registry, station.get("station_id"))
         append_station_markdown_block(lines, station, summary, index)
+
+    if not lines:
+        lines.append("暂无站点")
 
     return {
         "count": len(stations),
@@ -915,21 +915,13 @@ def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any])
     }
     stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
 
-    model_name = normalize_text(rank_result.get("filters", {}).get("model_name")) or "全部模型"
-    group = normalize_text(rank_result.get("filters", {}).get("group"))
-    title = f"# {model_name} 最便宜 Top {len(stations)}"
-    if group:
-        title = f"# {model_name} / {group} 最便宜 Top {len(stations)}"
-
-    lines = [title, ""]
-    lines.append(f"- 排序字段：`{rank_result.get('filters', {}).get('metric') or 'summary_rmb_per_m'}`")
-    lines.append(f"- 排序方向：`{rank_result.get('filters', {}).get('direction') or 'asc'}`")
-    lines.append(f"- 命中站点：`{len(stations)}`")
-    lines.append(f"- 命中价格记录：`{rank_result.get('count', 0)}`")
-    lines.append("")
+    lines = []
 
     for index, station in enumerate(stations, start=1):
         append_station_markdown_block(lines, station, station_record_summary(registry, station.get("station_id")), index)
+
+    if not lines:
+        lines.append("暂无站点")
 
     return {
         "count": len(stations),
