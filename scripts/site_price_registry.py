@@ -778,19 +778,30 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
         lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
         lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
         lines.append("")
-        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---|---:|---|---:|")
+        has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
+        if has_group_note:
+            lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
+            lines.append("|---|---|---|---:|---|---:|")
+        else:
+            lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
+            lines.append("|---|---|---:|---|---:|")
         for record in summary["records"]:
             computed = record.get("computed", {})
             multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
             group_note = normalize_text(record.get("group_note")) or "-"
             summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
-            lines.append(
-                f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
-                f"{build_computed_price_text(record)} | `{summary_cost}` |"
-            )
+            if has_group_note:
+                lines.append(
+                    f"| `{record.get('model_name')}` | `{record.get('group')}` | {group_note} | `{multiplier}` | "
+                    f"{build_computed_price_text(record)} | `{summary_cost}` |"
+                )
+            else:
+                lines.append(
+                    f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
+                    f"{build_computed_price_text(record)} | `{summary_cost}` |"
+                )
         if not summary["records"]:
-            lines.append("| - | - | - | - | 暂无价格记录 | - |")
+            lines.append("| - | - | - | 暂无价格记录 | - |")
         lines.append("")
 
     return {

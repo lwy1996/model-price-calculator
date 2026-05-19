@@ -279,6 +279,21 @@
       "notes": "v2ex站-送20-已添加QQ群-果冻AI通知群",
       "created_at": "2026-05-19T06:10:07+00:00",
       "updated_at": "2026-05-19T06:10:07+00:00"
+    },
+    {
+      "station_id": "多肉api",
+      "name": "多肉API",
+      "aliases": [
+        "多肉API",
+        "https://www.dorocli.cc"
+      ],
+      "website": "https://www.dorocli.cc",
+      "api_base_url": "",
+      "group_multipliers": {},
+      "is_test_data": false,
+      "notes": "已添加QQ群-多肉API交流③群",
+      "created_at": "2026-05-19T06:20:57+00:00",
+      "updated_at": "2026-05-19T06:20:57+00:00"
     }
   ],
   "price_records": [
@@ -3727,6 +3742,360 @@
       },
       "updated_at": "2026-05-19T06:10:07+00:00",
       "created_at": "2026-05-19T06:10:07+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-4::codex-free",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.4",
+      "group": "codex-free",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.500000 / 1M tokens",
+      "output_price": "$15.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.400000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "codex-free号池 稳定性不高",
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex-free-输入$2.5000-输出$15.0000-缓存读$0.4000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.4000",
+            "multiplied_usd_per_m": "0.0400",
+            "rmb_per_m": "0.0400"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.9000",
+          "multiplied_usd_per_m": "1.7900",
+          "rmb_per_m": "1.7900"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-5::codex-free",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.5",
+      "group": "codex-free",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5.000000 / 1M tokens",
+      "output_price": "$30.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.800000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "codex-free号池 稳定性不高",
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex-free",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex-free-输入$5.0000-输出$30.0000-缓存读$0.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.8000",
+            "multiplied_usd_per_m": "0.0800",
+            "rmb_per_m": "0.0800"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.8000",
+          "multiplied_usd_per_m": "3.5800",
+          "rmb_per_m": "3.5800"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-4::codex特价",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.4",
+      "group": "codex特价",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.500000 / 1M tokens",
+      "output_price": "$15.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.400000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "plus+Pro5X号池",
+      "multiplier": 0.25,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex特价",
+        "multiplier": "0.2500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex特价-输入$2.5000-输出$15.0000-缓存读$0.4000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.6250",
+            "rmb_per_m": "0.6250"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "3.7500",
+            "rmb_per_m": "3.7500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.4000",
+            "multiplied_usd_per_m": "0.1000",
+            "rmb_per_m": "0.1000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.9000",
+          "multiplied_usd_per_m": "4.4750",
+          "rmb_per_m": "4.4750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-5::codex特价",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.5",
+      "group": "codex特价",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5.000000 / 1M tokens",
+      "output_price": "$30.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.800000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "plus+Pro5X号池",
+      "multiplier": 0.25,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex特价",
+        "multiplier": "0.2500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex特价-输入$5.0000-输出$30.0000-缓存读$0.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.2500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "7.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.8000",
+            "multiplied_usd_per_m": "0.2000",
+            "rmb_per_m": "0.2000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.8000",
+          "multiplied_usd_per_m": "8.9500",
+          "rmb_per_m": "8.9500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-4::codex",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.4",
+      "group": "codex",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$2.500000 / 1M tokens",
+      "output_price": "$15.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.400000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "Pro 20x号池",
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex-输入$2.5000-输出$15.0000-缓存读$0.4000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "1.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "7.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.4000",
+            "multiplied_usd_per_m": "0.2000",
+            "rmb_per_m": "0.2000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.9000",
+          "multiplied_usd_per_m": "8.9500",
+          "rmb_per_m": "8.9500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
+    },
+    {
+      "record_id": "多肉api::gpt-5-5::codex",
+      "station_id": "多肉api",
+      "model_name": "gpt-5.5",
+      "group": "codex",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "$5.000000 / 1M tokens",
+      "output_price": "$30.000000 / 1M tokens",
+      "cache_price": null,
+      "cache_read_price": "$0.800000 / 1M tokens",
+      "cache_write_price": null,
+      "group_note": "Pro 20x号池",
+      "multiplier": 0.5,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex",
+        "multiplier": "0.5000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex-输入$5.0000-输出$30.0000-缓存读$0.8000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "2.5000",
+            "rmb_per_m": "2.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "15.0000",
+            "rmb_per_m": "15.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.8000",
+            "multiplied_usd_per_m": "0.4000",
+            "rmb_per_m": "0.4000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.8000",
+          "multiplied_usd_per_m": "17.9000",
+          "rmb_per_m": "17.9000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1600",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-19T06:20:57+00:00",
+      "created_at": "2026-05-19T06:20:57+00:00"
     }
   ]
 }
