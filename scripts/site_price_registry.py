@@ -799,15 +799,6 @@ def build_computed_price_text(record: Dict[str, Any], computed: Optional[Dict[st
     return " · ".join(parts) if parts else "未记录"
 
 
-def resolve_station_api_url(station: Dict[str, Any]) -> str:
-    return (
-        normalize_text(station.get("api_base_url"))
-        or normalize_text(station.get("api_url"))
-        or normalize_text(station.get("base_url"))
-        or "未记录"
-    )
-
-
 def append_station_markdown_block(
     lines: List[str],
     station: Dict[str, Any],
@@ -815,13 +806,13 @@ def append_station_markdown_block(
     index: int,
 ) -> None:
     website = normalize_text(station.get("website")) or "未记录"
-    api_url = resolve_station_api_url(station)
+    recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
     notes = normalize_text(station.get("notes")) or "无"
     marker = "（测试）" if is_test_station(station) else ""
 
     lines.append(f"{index}. {station.get('name') or station.get('station_id')}{marker}")
     lines.append(f"官网：{website}")
-    lines.append(f"API：{api_url}")
+    lines.append(f"充值比：{recharge_ratio}")
     lines.append(f"备注：{notes}")
     if is_test_station(station):
         lines.append("标识：测试数据")
