@@ -7,6 +7,8 @@ import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
+from model_catalog import canonical_model_name, model_defaults
+
 
 FOUR_DP = Decimal("0.0001")
 PRICE_FIELD_KEYS = {
@@ -15,26 +17,6 @@ PRICE_FIELD_KEYS = {
     "cache_price": ("cache", "cache_price", "缓存价格"),
     "cache_read_price": ("cache_read", "cache_read_price", "缓存读取价格"),
     "cache_write_price": ("cache_write", "cache_write_price", "缓存创建价格"),
-}
-OFFICIAL_MODEL_DEFAULTS = {
-    "gpt-5-4": {
-        "model_name": "gpt-5.4",
-        "input_price": "2.50 / 1M",
-        "cache_read_price": "0.25 / 1M",
-        "output_price": "15.00 / 1M",
-    },
-    "gpt-5-5": {
-        "model_name": "gpt-5.5",
-        "input_price": "5.00 / 1M",
-        "cache_read_price": "0.50 / 1M",
-        "output_price": "30.00 / 1M",
-    },
-    "gpt-5-4-mini": {
-        "model_name": "gpt-5.4-mini",
-        "input_price": "0.75 / 1M",
-        "cache_read_price": "0.075 / 1M",
-        "output_price": "4.50 / 1M",
-    },
 }
 
 
@@ -58,15 +40,6 @@ def to_decimal(value: Any) -> Optional[Decimal]:
     if not match:
         return None
     return Decimal(match.group(0))
-
-
-def normalize_model_key(value: Any) -> str:
-    if value is None:
-        return ""
-    text = str(value).strip().lower()
-    text = text.replace(".", "-")
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    return text.strip("-")
 
 
 def parse_ratio(value: Any) -> Dict[str, Decimal]:
@@ -139,11 +112,11 @@ def must_get(data: Dict[str, Any], *keys: str) -> Any:
 def apply_official_model_defaults(payload: Dict[str, Any]) -> Dict[str, Any]:
     resolved = dict(payload)
     model_name = str(must_get(resolved, "model_name", "模型名称") or "gpt5.4")
-    official = OFFICIAL_MODEL_DEFAULTS.get(normalize_model_key(model_name))
+    official = model_defaults(model_name)
     if not official:
         return resolved
 
-    resolved["model_name"] = official["model_name"]
+    resolved["model_name"] = official.get("model_name") or canonical_model_name(model_name)
     for field_name, keys in PRICE_FIELD_KEYS.items():
         current = must_get(resolved, *keys)
         if current in (None, "") and field_name in official:

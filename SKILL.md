@@ -24,6 +24,9 @@ description: 计算大模型 token 价格、倍率价格、充值比折算价格
 默认存储后端是本地 JSON 文件：
 `assets/site-price-registry.json`
 
+模型别名和官方默认价的单一配置源是：
+`assets/model-catalog.json`
+
 多轮会话草稿保存在：
 `assets/site-price-drafts.json`
 
@@ -50,10 +53,7 @@ description: 计算大模型 token 价格、倍率价格、充值比折算价格
 - `输出价格` 必填
 - `缓存价格` 默认优先使用 `缓存读取价格`
 - 如果同时给出 `缓存读取价格` 和 `缓存创建价格`，都要算，并在结果中分开显示
-- 如果模型名称命中以下官方模型，且某些价格字段未指定，则自动补官方默认价：
-  - `gpt-5.4`：输入 `2.50 / 1M`，缓存输入 `0.25 / 1M`，输出 `15.00 / 1M`
-  - `gpt-5.5`：输入 `5.00 / 1M`，缓存输入 `0.50 / 1M`，输出 `30.00 / 1M`
-  - `gpt-5.4-mini`：输入 `0.75 / 1M`，缓存输入 `0.075 / 1M`，输出 `4.50 / 1M`
+- 如果模型名称命中 `assets/model-catalog.json` 中的官方模型，且某些价格字段未指定，则自动补该模型目录里的官方默认价
 - 上述默认价只在“模型名称匹配且对应价格缺失”时生效；如果用户已明确给价，始终以用户输入为准
 - `倍率` 默认 `1`
 - `充值比` 属于站点级字段，默认 `1:1`
@@ -261,14 +261,23 @@ description: 计算大模型 token 价格、倍率价格、充值比折算价格
 
 `quick` 的行为规则：
 - 识别到 `最便宜`、`排行`、`topN`、`前N`，且能识别模型时，自动走排行
-- `5.4`、`gpt5.4`、`54` 统一识别为 `gpt-5.4`
-- `5.5`、`gpt5.5`、`55` 统一识别为 `gpt-5.5`
-- `mini`、`5.4 mini` 统一识别为 `gpt-5.4-mini`
+- 模型别名统一读取 `assets/model-catalog.json`，例如 `5.4`、`gpt5.4`、`54` 会解析到 `gpt-5.4`
 - `输入最便宜` 按 `input_rmb_per_m` 排序
 - `输出最便宜` 按 `output_rmb_per_m` 排序
 - `缓存最便宜` 按 `cache_read_rmb_per_m` 排序
 - 未指定排序字段时，默认按 `summary_rmb_per_m` 综合价从低到高
+- 排行展示默认只展示命中的模型/分组记录，不把同站点的其他模型一并展开
+- 排行表格要展示 `便宜原因`，例如倍率低、充值比高、限时特价、缓存读取价低、按输出价排序
+- 支持筛选和排除条件：
+  - `5.4 最便宜 排除不稳定`
+  - `5.4 最便宜 排除限时特价`
+  - `5.4 最便宜 只看售后群`
+  - `5.4 pro号池 最便宜`
 - 非排行查询自动走全字段搜索，搜索范围包括站点名、别名、官网、API 地址、备注、模型、分组、分组备注和标签
+- 非排行查询支持宽松匹配：
+  - 空格和连接符可忽略，例如 `cool play` 可命中 `Coolplay`
+  - 可通过相近拼写命中，例如 `toito` 可命中 `ToioTo`
+  - 英文关键词可跨连接符命中，例如 `gpt image` 可命中 `gpt-image`
 - 默认输出完整站点 Markdown；用户明确说 `简洁`、`摘要` 或传 `view=compact` 时，才输出简洁命中摘要
 
 ## 图片识别规则
@@ -487,6 +496,20 @@ python "<skill_dir>/scripts/calc_model_price.py" --json "<json-string>"
 
 如果用户要统一清理测试站点，运行：
 `scripts/site_price_registry.py cleanup-test --json-file <payload>`
+
+如果用户要做价格库只读校验，运行：
+`scripts/validate_registry.py --format markdown`
+
+校验脚本只读，不修改价格库，默认检查：
+- JSON 顶层结构
+- 站点 ID 和价格记录 ID 是否重复
+- 价格记录引用的站点是否存在
+- 同站点同模型同分组是否重复
+- 价格字段是否可解析
+- `recharge_ratio` 是否合法
+- `computed` 是否与当前算法重算一致
+- 模型是否收录在 `assets/model-catalog.json`
+- 综合价是否异常低或异常高
 
 如果用户要只更新站点信息，运行：
 `scripts/site_price_registry.py update-station --json-file <payload>`

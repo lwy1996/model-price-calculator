@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import re
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
+from model_catalog import canonical_model_name
 
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
@@ -60,6 +62,46 @@ def normalize_key(value: Any) -> str:
     text = re.sub(r"[^\w]+", "-", text, flags=re.UNICODE)
     text = text.replace("_", "-")
     return text.strip("-")
+
+
+def compact_search_key(value: Any) -> str:
+    return re.sub(r"[-\s]+", "", normalize_key(value))
+
+
+def fuzzy_ratio(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return difflib.SequenceMatcher(None, left, right).ratio()
+
+
+def text_matches_query(query: Any, value: Any) -> bool:
+    query_text = normalize_text(query).lower()
+    value_text = normalize_text(value).lower()
+    if not query_text or not value_text:
+        return False
+    if query_text in value_text:
+        return True
+
+    query_key = normalize_key(query_text)
+    value_key = normalize_key(value_text)
+    if query_key and value_key and query_key in value_key:
+        return True
+
+    query_compact = compact_search_key(query_text)
+    value_compact = compact_search_key(value_text)
+    if query_compact and value_compact and query_compact in value_compact:
+        return True
+
+    query_parts = [part for part in re.split(r"[-\s]+", query_key) if part]
+    if query_parts and all(part in value_key for part in query_parts):
+        return True
+
+    if len(query_compact) >= 4:
+        candidates = [part for part in re.split(r"[-\s:/._]+", value_key) if len(part) >= 4]
+        candidates.append(value_compact)
+        if any(fuzzy_ratio(query_compact, candidate) >= 0.78 for candidate in candidates):
+            return True
+    return False
 
 
 def identifier_variants(value: Any) -> List[str]:
@@ -434,6 +476,7 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
         return None
 
     return {
+        "record_id": record.get("record_id"),
         "station_id": record.get("station_id"),
         "station_name": station.get("name") or record.get("station_id"),
         "aliases": station.get("aliases", []),
@@ -448,21 +491,98 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
     }
 
 
+def record_search_fields(station: Dict[str, Any], record: Dict[str, Any]) -> List[str]:
+    values = [
+        station.get("station_id"),
+        station.get("name"),
+        station.get("website"),
+        station.get("api_base_url"),
+        station.get("api_url"),
+        station.get("notes"),
+        station.get("recharge_ratio"),
+        record.get("model_name"),
+        record.get("group"),
+        record.get("group_note"),
+    ]
+    values.extend(station.get("aliases") or [])
+    values.extend(ensure_list(record.get("tags")))
+    return [normalize_text(value) for value in values if normalize_text(value)]
+
+
+def record_matches_terms(station: Dict[str, Any], record: Dict[str, Any], terms: List[str], require_all: bool = True) -> bool:
+    normalized_terms = [normalize_text(term) for term in terms if normalize_text(term)]
+    if not normalized_terms:
+        return True
+    fields = record_search_fields(station, record)
+    matcher = all if require_all else any
+    return matcher(any(text_matches_query(term, field) for field in fields) for term in normalized_terms)
+
+
+def item_explain_parts(station: Dict[str, Any], record: Dict[str, Any], metric: str, computed: Dict[str, Any]) -> List[str]:
+    parts = []
+    multiplier = to_decimal(computed.get("multiplier") or record.get("multiplier"))
+    if multiplier is not None and multiplier < 1:
+        parts.append(f"倍率低（{trim_decimal_text(format_decimal(multiplier))}）")
+
+    recharge_ratio = resolve_station_recharge_ratio(station, record)
+    ratio_parts = re.split(r"\s*:\s*", recharge_ratio)
+    if len(ratio_parts) == 2:
+        left = to_decimal(ratio_parts[0])
+        right = to_decimal(ratio_parts[1])
+        if left is not None and right is not None and left > 0:
+            credit_per_rmb = right / left
+            if credit_per_rmb > 1:
+                parts.append(f"充值比高（{recharge_ratio}）")
+
+    group_note = normalize_text(record.get("group_note"))
+    group = normalize_text(record.get("group"))
+    if text_matches_query("限时", group) or text_matches_query("限时", group_note):
+        parts.append("限时特价")
+    if text_matches_query("特价", group) or text_matches_query("特价", group_note):
+        parts.append("特价分组")
+
+    dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
+    input_price = to_decimal((dimensions.get("input") or {}).get("rmb_per_m"))
+    cache_price = to_decimal((dimensions.get("cache_read") or {}).get("rmb_per_m"))
+    if cache_price is not None and input_price is not None and input_price > 0 and cache_price < input_price / 5:
+        parts.append("缓存读取价低")
+    if metric == "output_rmb_per_m":
+        parts.append("按输出价排序")
+    elif metric == "input_rmb_per_m":
+        parts.append("按输入价排序")
+    elif metric == "cache_read_rmb_per_m":
+        parts.append("按缓存读取价排序")
+    return unique_strings(parts)[:3]
+
+
 def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     model_name = normalize_text(query.get("model_name"))
     group = normalize_text(query.get("group"))
     metric = normalize_text(query.get("sort_by") or query.get("metric") or "summary_rmb_per_m")
     direction = normalize_text(query.get("direction") or "asc").lower()
+    include_terms = ensure_list(query.get("include_terms") or query.get("include") or query.get("包含"))
+    exclude_terms = ensure_list(query.get("exclude_terms") or query.get("exclude") or query.get("排除"))
 
     matched = []
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
     for record in registry.get("price_records", []):
         if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
             continue
         if group and normalize_key(record.get("group")) != normalize_key(group):
             continue
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        if include_terms and not record_matches_terms(station, record, include_terms, require_all=True):
+            continue
+        if exclude_terms and record_matches_terms(station, record, exclude_terms, require_all=False):
+            continue
         item = build_rank_item(registry, record, metric)
         if item is None:
             continue
+        computed = compute(build_record_pricing_payload(station, record))
+        item["cheap_reasons"] = item_explain_parts(station, record, metric, computed)
         matched.append(item)
 
     reverse = direction == "desc"
@@ -476,6 +596,8 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
             "group": group or None,
             "metric": metric,
             "direction": direction,
+            "include_terms": include_terms,
+            "exclude_terms": exclude_terms,
         },
         "count": len(matched),
         "items": matched,
@@ -483,22 +605,7 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
 
 
 def normalize_model_alias(value: Any) -> str:
-    text = normalize_text(value).lower()
-    if not text:
-        return ""
-
-    compact = re.sub(r"[\s_\-]+", "", text)
-    compact = compact.replace("gpt", "")
-    compact = compact.replace("模型", "")
-    compact = compact.strip()
-
-    if "mini" in compact and re.search(r"5[.\-]?4|54", compact):
-        return "gpt-5.4-mini"
-    if re.search(r"5[.\-]?5|55", compact):
-        return "gpt-5.5"
-    if re.search(r"5[.\-]?4|54", compact):
-        return "gpt-5.4"
-    return normalize_text(value)
+    return canonical_model_name(value)
 
 
 def extract_quick_limit(text: str, default: int = 10) -> int:
@@ -573,9 +680,65 @@ def extract_quick_group(text: str) -> str:
     ]
     lowered = text.lower()
     for group in known_groups:
+        if group.lower() in {"pro", "plus"} and re.search(rf"{re.escape(group)}\s*号池", lowered, re.I):
+            continue
+        if re.search(rf"(?:排除|不要|不看|过滤掉|剔除)[^，。,；;]*{re.escape(group)}", text, re.I):
+            continue
         if group.lower() in lowered:
             return group
     return ""
+
+
+def split_filter_terms(text: str) -> List[str]:
+    terms = []
+    for part in re.split(r"[,，、/]|和|且|并且", normalize_text(text)):
+        term = normalize_text(part)
+        term = re.sub(r"^(?:有|带|支持|包含|含|是)\s*", "", term)
+        term = re.sub(r"\s*(?:的)?(?:站点|中转站|分组|记录)$", "", term)
+        if term:
+            terms.append(term)
+    return unique_strings(terms)
+
+
+def extract_quick_filter_terms(text: str) -> Tuple[List[str], List[str]]:
+    include_terms: List[str] = []
+    exclude_terms: List[str] = []
+
+    for pattern, target in [
+        (r"(?:排除|不要|不看|过滤掉|剔除)\s*([^，。,；;]+)", exclude_terms),
+        (r"(?:只看|仅看|筛选|包含|含有)\s*([^，。,；;]+)", include_terms),
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            target.extend(split_filter_terms(match.group(1)))
+
+    descriptor_terms = [
+        "pro号池",
+        "plus号池",
+        "售后群",
+        "QQ群",
+        "微信群",
+        "v2ex",
+        "gpt-image",
+        "支持图片",
+        "限时特价",
+        "特价",
+        "不稳定",
+        "稳定",
+    ]
+    lowered = text.lower()
+    for term in descriptor_terms:
+        if term.lower() not in lowered:
+            continue
+        if term == "稳定" and "不稳定" in lowered:
+            continue
+        if any(text_matches_query(term, excluded) for excluded in exclude_terms):
+            continue
+        if re.search(rf"(?:排除|不要|不看|过滤掉|剔除)\s*{re.escape(term)}", text, re.I):
+            exclude_terms.append(term)
+        elif not any(text_matches_query(term, included) for included in include_terms):
+            include_terms.append(term)
+
+    return unique_strings(include_terms), unique_strings(exclude_terms)
 
 
 def is_quick_rank_query(text: str, payload: Dict[str, Any]) -> bool:
@@ -594,12 +757,17 @@ def build_quick_rank_query(payload: Dict[str, Any]) -> Dict[str, Any]:
     metric = normalize_text(payload.get("sort_by") or payload.get("metric")) or extract_quick_metric(text)
     direction = normalize_text(payload.get("direction") or "asc").lower()
     limit = payload.get("limit") or extract_quick_limit(text, default=10)
+    detected_include_terms, detected_exclude_terms = extract_quick_filter_terms(text)
+    include_terms = ensure_list(payload.get("include_terms") or payload.get("include") or payload.get("包含")) or detected_include_terms
+    exclude_terms = ensure_list(payload.get("exclude_terms") or payload.get("exclude") or payload.get("排除")) or detected_exclude_terms
     return {
         "model_name": model_name,
         "group": group,
         "sort_by": metric,
         "direction": direction,
         "limit": limit,
+        "include_terms": include_terms,
+        "exclude_terms": exclude_terms,
     }
 
 
@@ -647,8 +815,6 @@ def search_stations_full_text(registry: Dict[str, Any], query: Dict[str, Any]) -
             "keyword": keyword,
         }
 
-    normalized_keyword = normalize_key(keyword)
-    lowered_keyword = keyword.lower()
     records_by_station: Dict[str, List[Dict[str, Any]]] = {}
     for record in registry.get("price_records", []):
         records_by_station.setdefault(normalize_text(record.get("station_id")), []).append(record)
@@ -663,11 +829,7 @@ def search_stations_full_text(registry: Dict[str, Any], query: Dict[str, Any]) -
         for label, value, weight in station_search_fields(station, records):
             if not value:
                 continue
-            normalized_value = normalize_key(value)
-            lowered_value = value.lower()
-            matched = lowered_keyword in lowered_value
-            if not matched and normalized_keyword:
-                matched = normalized_keyword in normalized_value
+            matched = text_matches_query(keyword, value)
             if not matched:
                 continue
             score += weight
@@ -1015,6 +1177,43 @@ def station_record_summary(registry: Dict[str, Any], station_id: str) -> Dict[st
     }
 
 
+def filtered_station_record_summary(
+    registry: Dict[str, Any],
+    station: Dict[str, Any],
+    filters: Optional[Dict[str, Any]] = None,
+    rank_items_by_record_id: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    filters = filters or {}
+    rank_items_by_record_id = rank_items_by_record_id or {}
+    model_name = normalize_text(filters.get("model_name"))
+    group = normalize_text(filters.get("group"))
+    include_terms = ensure_list(filters.get("include_terms"))
+    exclude_terms = ensure_list(filters.get("exclude_terms"))
+
+    summary = station_record_summary(registry, station.get("station_id"))
+    records = []
+    for record in summary.get("records", []):
+        if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
+            continue
+        if group and normalize_key(record.get("group")) != normalize_key(group):
+            continue
+        if include_terms and not record_matches_terms(station, record, include_terms, require_all=True):
+            continue
+        if exclude_terms and record_matches_terms(station, record, exclude_terms, require_all=False):
+            continue
+        rendered_record = deepcopy(record)
+        rank_item = rank_items_by_record_id.get(normalize_text(record.get("record_id")))
+        if rank_item:
+            rendered_record["_cheap_reasons"] = rank_item.get("cheap_reasons") or []
+        records.append(rendered_record)
+
+    return {
+        "record_count": len(records),
+        "model_groups": [f"{record.get('model_name')} / {record.get('group')}" for record in records],
+        "records": records,
+    }
+
+
 def station_completeness(station: Dict[str, Any]) -> str:
     score = 0
     if normalize_text(station.get("website")):
@@ -1105,9 +1304,16 @@ def append_station_markdown_block(
     lines.append("")
 
     has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
-    if has_group_note:
+    has_cheap_reason = any(record.get("_cheap_reasons") for record in summary["records"])
+    if has_group_note and has_cheap_reason:
+        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 | 便宜原因 |")
+        lines.append("|---|---|---|---:|---|---:|---|")
+    elif has_group_note:
         lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
         lines.append("|---|---|---|---:|---|---:|")
+    elif has_cheap_reason:
+        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 | 便宜原因 |")
+        lines.append("|---|---|---:|---|---:|---|")
     else:
         lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
         lines.append("|---|---|---:|---|---:|")
@@ -1117,10 +1323,21 @@ def append_station_markdown_block(
         multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
         group_note = normalize_text(record.get("group_note")) or "-"
         summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
-        if has_group_note:
+        cheap_reason = "；".join(record.get("_cheap_reasons") or []) or "-"
+        if has_group_note and has_cheap_reason:
+            lines.append(
+                f"| {record.get('model_name')} | {record.get('group')} | {group_note} | {multiplier} | "
+                f"{build_computed_price_text(record, computed)} | {summary_cost} | {cheap_reason} |"
+            )
+        elif has_group_note:
             lines.append(
                 f"| {record.get('model_name')} | {record.get('group')} | {group_note} | {multiplier} | "
                 f"{build_computed_price_text(record, computed)} | {summary_cost} |"
+            )
+        elif has_cheap_reason:
+            lines.append(
+                f"| {record.get('model_name')} | {record.get('group')} | {multiplier} | "
+                f"{build_computed_price_text(record, computed)} | {summary_cost} | {cheap_reason} |"
             )
         else:
             lines.append(
@@ -1129,8 +1346,12 @@ def append_station_markdown_block(
             )
 
     if not summary["records"]:
-        if has_group_note:
+        if has_group_note and has_cheap_reason:
+            lines.append("| - | - | - | - | 暂无价格记录 | - | - |")
+        elif has_group_note:
             lines.append("| - | - | - | - | 暂无价格记录 | - |")
+        elif has_cheap_reason:
+            lines.append("| - | - | - | 暂无价格记录 | - | - |")
         else:
             lines.append("| - | - | - | 暂无价格记录 | - |")
     lines.append("")
@@ -1189,6 +1410,11 @@ def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any])
     limit = int(query.get("limit") or 10)
     station_ids = []
     seen_station_ids = set()
+    rank_items_by_record_id = {
+        normalize_text(item.get("record_id")): item
+        for item in rank_result.get("items", [])
+        if normalize_text(item.get("record_id"))
+    }
 
     for item in rank_result.get("items", []):
         station_id = normalize_text(item.get("station_id"))
@@ -1208,7 +1434,13 @@ def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any])
     lines = []
 
     for index, station in enumerate(stations, start=1):
-        append_station_markdown_block(lines, station, station_record_summary(registry, station.get("station_id")), index)
+        summary = filtered_station_record_summary(
+            registry,
+            station,
+            rank_result.get("filters", {}),
+            rank_items_by_record_id,
+        )
+        append_station_markdown_block(lines, station, summary, index)
 
     if not lines:
         lines.append("暂无站点")
