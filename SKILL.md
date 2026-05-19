@@ -315,6 +315,11 @@ API：
 - 缓存读取折扣率（相对输入）
 - 缓存创建折扣率或溢价率（相对输入）
 
+5. 如果输出内容本身已经是 Markdown 列表、Markdown 表格或完整 Markdown 文本：
+- 默认直接以可渲染 Markdown 形式输出
+- 不要再额外包一层代码块
+- 只有用户明确要求“原始 Markdown 源文本”时，才放进代码块
+
 ## 对比分析规则
 
 当用户一次给出多个方案、多个分组或多个站点时：
@@ -374,6 +379,11 @@ python "<skill_dir>/scripts/calc_model_price.py" --json "<json-string>"
 
 如果用户要以更好看的 Markdown 列表查看全部站点，运行：
 `scripts/site_price_registry.py stations-md --json-file <payload>`
+
+执行 `stations-md`、`leaderboard` 或其他已返回 Markdown 文本的展示型命令时：
+- 优先直接渲染脚本返回的 Markdown
+- 不要自行改写结构或重新排版
+- 不要默认包裹三引号代码块，除非用户明确要求查看原始 Markdown
 
 如果用户要统一清理测试站点，运行：
 `scripts/site_price_registry.py cleanup-test --json-file <payload>`
