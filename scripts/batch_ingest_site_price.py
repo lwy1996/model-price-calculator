@@ -110,6 +110,7 @@ def detect_declared_group_scope(text: str) -> str:
         r"以下为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
         r"下面都是\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
         r"下面为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+        r"^\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格\s*$",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.I)
@@ -147,15 +148,20 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
     offset = 0
     boundaries: List[Dict[str, Any]] = []
     header_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
+    active_group_scope = ""
 
     for line in lines:
         stripped = line.strip()
+        declared_group_scope = detect_declared_group_scope(stripped)
+        if declared_group_scope:
+            active_group_scope = declared_group_scope
         if stripped and stripped not in SECTION_KEYWORDS and header_pattern.fullmatch(stripped):
             boundaries.append(
                 {
                     "model_name": stripped,
                     "start": offset,
                     "end": offset + len(line),
+                    "scoped_group": active_group_scope,
                 }
             )
         offset += len(line)
@@ -172,6 +178,7 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
             {
                 "model_name": boundary["model_name"],
                 "body": text[body_start:body_end].strip(),
+                "scoped_group": boundary.get("scoped_group", ""),
             }
         )
     return preamble, sections
@@ -197,7 +204,7 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
             "group_multipliers": parse_group_multipliers(body) or global_context["group_multipliers"],
             "recharge_ratio": parse_recharge_ratio(body) if re.search(r"充值比[:：]", body, re.I) else global_context["recharge_ratio"],
             "post_multiplier_pricing": is_post_multiplier_pricing(body) or global_context["post_multiplier_pricing"],
-            "scoped_group": detect_declared_group_scope(body) or global_context["scoped_group"],
+            "scoped_group": detect_declared_group_scope(body) or section.get("scoped_group") or global_context["scoped_group"],
             "group_note": parse_group_note(body) or global_context["group_note"],
         }
         model_data.update(price_fields)
@@ -235,7 +242,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
         groups = model.get("group_multipliers") or station.get("group_multipliers") or {"default": 1.0}
         source_group = resolve_source_group(model, groups)
         target_groups = groups
-        if source_group and not model.get("post_multiplier_pricing"):
+        if source_group:
             target_groups = {source_group: groups.get(source_group, 1.0)}
 
         base_prices = {
