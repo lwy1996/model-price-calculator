@@ -16,6 +16,28 @@ from model_catalog import canonical_model_name
 
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
+HISTORY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-history.json"
+DEFAULT_STALE_AFTER_DAYS = 30
+LOW_CONFIDENCE_THRESHOLD = 0.7
+ANOMALY_LOW_RATIO = 0.2
+CONFIDENCE_SOURCE_RULES = [
+    (("official", "官网", "官方", "控制台", "价格页"), 0.95, "官网/官方价格页"),
+    (("screenshot", "截图", "图片", "price-card", "价格卡片"), 0.85, "截图/价格卡片"),
+    (("qq", "qq群", "群公告", "微信群", "wx群", "公告"), 0.70, "社群公告"),
+    (("user", "manual", "用户口述", "手动", "口述"), 0.60, "用户口述/手动记录"),
+    (("inferred", "history", "历史推断", "推断", "默认"), 0.40, "历史推断/默认值"),
+]
+PRICE_HISTORY_FIELDS = [
+    "input_price",
+    "output_price",
+    "cache_price",
+    "cache_read_price",
+    "cache_write_price",
+    "multiplier",
+    "recharge_ratio",
+    "sale_price",
+    "computed",
+]
 
 
 def now_iso() -> str:
@@ -42,6 +64,18 @@ def save_registry(registry: Dict[str, Any]) -> None:
         json.dump(registry, file, ensure_ascii=False, indent=2)
 
 
+def load_history() -> Dict[str, Any]:
+    if not HISTORY_PATH.exists():
+        return {"version": 1, "changes": []}
+    return load_json_file(str(HISTORY_PATH))
+
+
+def save_history(history: Dict[str, Any]) -> None:
+    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(HISTORY_PATH, "w", encoding="utf-8") as file:
+        json.dump(history, file, ensure_ascii=False, indent=2)
+
+
 def normalize_text(value: Any) -> str:
     if value is None:
         return ""
@@ -53,6 +87,52 @@ def normalize_bool(value: Any) -> bool:
         return value
     text = normalize_text(value).lower()
     return text in {"1", "true", "yes", "y", "是", "测试", "test"}
+
+
+def parse_iso_datetime(value: Any) -> Optional[datetime]:
+    text = normalize_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def days_since(value: Any, now: Optional[datetime] = None) -> Optional[int]:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    return max((current - parsed).days, 0)
+
+
+def normalize_int(value: Any, default: int) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return default
+    return numeric if numeric > 0 else default
+
+
+def normalize_confidence(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    text = normalize_text(value).rstrip("%")
+    try:
+        numeric = float(text)
+    except (TypeError, ValueError):
+        return None
+    if numeric > 1 and numeric <= 100:
+        numeric = numeric / 100
+    if numeric < 0 or numeric > 1:
+        return None
+    return round(numeric, 2)
 
 
 def normalize_key(value: Any) -> str:
@@ -156,6 +236,91 @@ def unique_strings(values: List[str]) -> List[str]:
     return result
 
 
+def resolve_confidence(payload: Dict[str, Any], station: Optional[Dict[str, Any]] = None) -> Tuple[float, str]:
+    explicit = normalize_confidence(
+        payload.get("confidence_score")
+        or payload.get("可信度")
+        or payload.get("price_confidence")
+    )
+    if explicit is not None:
+        return explicit, "显式指定"
+
+    haystacks = [
+        payload.get("source"),
+        payload.get("来源"),
+        payload.get("confidence_reason"),
+        payload.get("notes"),
+        payload.get("备注"),
+        payload.get("group_note"),
+        payload.get("分组备注"),
+    ]
+    if station:
+        haystacks.extend([station.get("notes"), station.get("website")])
+    text = " ".join(normalize_text(item).lower() for item in haystacks if normalize_text(item))
+    for keywords, score, reason in CONFIDENCE_SOURCE_RULES:
+        if any(keyword.lower() in text for keyword in keywords):
+            return score, reason
+    return 0.60, "默认手动记录"
+
+
+def record_confidence(record: Dict[str, Any], station: Optional[Dict[str, Any]] = None) -> Tuple[float, str]:
+    explicit = normalize_confidence(record.get("confidence_score"))
+    if explicit is not None:
+        return explicit, normalize_text(record.get("confidence_reason")) or "记录字段"
+    return resolve_confidence(record, station)
+
+
+def confidence_label(score: Any) -> str:
+    numeric = normalize_confidence(score)
+    if numeric is None:
+        return "-"
+    return f"{numeric:.2f}"
+
+
+def resolve_stale_after_days(station: Dict[str, Any], record: Dict[str, Any]) -> int:
+    return normalize_int(
+        record.get("stale_after_days")
+        or station.get("stale_after_days"),
+        DEFAULT_STALE_AFTER_DAYS,
+    )
+
+
+def record_verified_at(station: Dict[str, Any], record: Dict[str, Any]) -> str:
+    return (
+        normalize_text(record.get("last_verified_at"))
+        or normalize_text(station.get("last_verified_at"))
+        or normalize_text(record.get("updated_at"))
+        or normalize_text(record.get("created_at"))
+    )
+
+
+def price_stale_warnings(station: Dict[str, Any], record: Dict[str, Any]) -> List[str]:
+    warnings = []
+    now = datetime.now(timezone.utc)
+    expires_at = parse_iso_datetime(record.get("expires_at") or station.get("expires_at"))
+    if expires_at is not None and expires_at < now:
+        warnings.append(f"价格已过期（{iso_to_display(expires_at.isoformat())}）")
+
+    verified_at = record_verified_at(station, record)
+    age_days = days_since(verified_at, now)
+    stale_after_days = resolve_stale_after_days(station, record)
+    if age_days is None:
+        warnings.append("未记录验证时间")
+    elif age_days > stale_after_days:
+        warnings.append(f"该价格 {age_days} 天未验证，可能已过期")
+    return warnings
+
+
+def record_health_warnings(station: Dict[str, Any], record: Dict[str, Any], extra: Optional[List[str]] = None) -> List[str]:
+    warnings = []
+    confidence_score, _ = record_confidence(record, station)
+    if confidence_score < LOW_CONFIDENCE_THRESHOLD:
+        warnings.append(f"可信度偏低（{confidence_label(confidence_score)}）")
+    warnings.extend(price_stale_warnings(station, record))
+    warnings.extend(extra or [])
+    return unique_strings(warnings)
+
+
 def resolve_station_recharge_ratio(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> str:
     station_ratio = normalize_text(station.get("recharge_ratio"))
     if station_ratio:
@@ -196,6 +361,7 @@ def normalize_group_multiplier_map(value: Any) -> Dict[str, float]:
 
 def build_station_identifiers(station: Dict[str, Any], include_api: bool = True) -> List[str]:
     identifiers = []
+    identifiers.extend(ensure_list(station.get("station_id")))
     identifiers.extend(ensure_list(station.get("aliases")))
     identifiers.extend(
         ensure_list(
@@ -220,6 +386,7 @@ def station_match_score(station: Dict[str, Any], payload: Dict[str, Any]) -> int
     station_aliases = collect_station_match_keys(
         list(station.get("aliases", []))
         + [
+            station.get("station_id"),
             station.get("name"),
             station.get("website"),
             station.get("api_base_url"),
@@ -244,6 +411,65 @@ def find_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> T
             best_station = station
             best_score = score
     return best_station, best_score
+
+
+def find_station_candidates(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates = []
+    for station in registry.get("stations", []):
+        score = station_match_score(station, station_payload)
+        if score <= 0:
+            continue
+        candidates.append(
+            {
+                "station": station,
+                "score": score,
+                "station_id": station.get("station_id"),
+                "name": station.get("name"),
+                "website": station.get("website"),
+                "aliases": station.get("aliases", []),
+            }
+        )
+    candidates.sort(key=lambda item: (-item["score"], normalize_text(item.get("name") or item.get("station_id")).lower()))
+    return candidates
+
+
+def station_conflict_result(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "needs_confirmation": True,
+        "message": f"我找到 {len(candidates)} 个可能的站点，请回复编号。",
+        "candidates": [
+            {
+                "index": index,
+                "station_id": item.get("station_id"),
+                "name": item.get("name"),
+                "website": item.get("website"),
+                "score": item.get("score"),
+            }
+            for index, item in enumerate(candidates, start=1)
+        ],
+    }
+
+
+def resolve_station_for_write(
+    registry: Dict[str, Any],
+    station_payload: Dict[str, Any],
+    allow_create: bool = False,
+) -> Tuple[Optional[Dict[str, Any]], int, Optional[Dict[str, Any]]]:
+    candidates = find_station_candidates(registry, station_payload)
+    if not candidates:
+        return None, 0, None
+
+    best = candidates[0]
+    top_score = best["score"]
+    ambiguous = [
+        item
+        for item in candidates
+        if item["score"] == top_score
+        or (top_score <= 2 and item["score"] >= top_score - 1)
+    ]
+    if len(ambiguous) > 1 and not allow_create:
+        return None, top_score, station_conflict_result(ambiguous[:5])
+    return best["station"], top_score, None
 
 
 def derive_station_id(station_payload: Dict[str, Any]) -> str:
@@ -286,6 +512,9 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
             "notes": normalize_text(station_payload.get("notes")),
+            "last_verified_at": normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间")),
+            "stale_after_days": normalize_int(station_payload.get("stale_after_days") or station_payload.get("过期天数"), DEFAULT_STALE_AFTER_DAYS),
+            "expires_at": normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间")),
             "created_at": timestamp,
             "updated_at": timestamp,
         }
@@ -307,6 +536,15 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
     if "is_test_data" in station_payload:
         station["is_test_data"] = normalize_bool(station_payload.get("is_test_data"))
     station["notes"] = normalize_text(station_payload.get("notes") or station.get("notes"))
+    if "last_verified_at" in station_payload or "最后验证时间" in station_payload:
+        station["last_verified_at"] = normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间"))
+    if "stale_after_days" in station_payload or "过期天数" in station_payload:
+        station["stale_after_days"] = normalize_int(
+            station_payload.get("stale_after_days") or station_payload.get("过期天数"),
+            DEFAULT_STALE_AFTER_DAYS,
+        )
+    if "expires_at" in station_payload or "过期时间" in station_payload:
+        station["expires_at"] = normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间"))
     station["aliases"] = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload))
     station["updated_at"] = timestamp
     return station
@@ -314,7 +552,9 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
 
 def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or payload)
-    station, score = find_station(registry, station_payload)
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
     if station is None or score == 0:
         raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
 
@@ -356,6 +596,24 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         if value != station.get("notes", ""):
             station["notes"] = value
             changed_fields.append("notes")
+
+    if "last_verified_at" in station_payload or "最后验证时间" in station_payload:
+        value = normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间"))
+        if value != normalize_text(station.get("last_verified_at")):
+            station["last_verified_at"] = value
+            changed_fields.append("last_verified_at")
+
+    if "stale_after_days" in station_payload or "过期天数" in station_payload:
+        value = normalize_int(station_payload.get("stale_after_days") or station_payload.get("过期天数"), DEFAULT_STALE_AFTER_DAYS)
+        if value != resolve_stale_after_days(station, {}):
+            station["stale_after_days"] = value
+            changed_fields.append("stale_after_days")
+
+    if "expires_at" in station_payload or "过期时间" in station_payload:
+        value = normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间"))
+        if value != normalize_text(station.get("expires_at")):
+            station["expires_at"] = value
+            changed_fields.append("expires_at")
 
     new_aliases = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload, include_api=False))
     if new_aliases != station.get("aliases", []):
@@ -450,7 +708,61 @@ def recompute_station_records(registry: Dict[str, Any], station: Dict[str, Any],
         refreshed_record["recharge_ratio"] = resolve_station_recharge_ratio(station, record)
         refreshed_record["computed"] = compute(build_record_pricing_payload(station, refreshed_record))
         refreshed_record["updated_at"] = updated_at
+        append_price_history(record, refreshed_record, "station_recharge_ratio_changed")
         registry["price_records"][index] = refreshed_record
+
+
+def history_value(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {field: deepcopy(record.get(field)) for field in PRICE_HISTORY_FIELDS if field in record}
+
+
+def price_record_changed(old_record: Dict[str, Any], new_record: Dict[str, Any]) -> bool:
+    return history_value(old_record) != history_value(new_record)
+
+
+def record_summary_price(record: Dict[str, Any]) -> Optional[Any]:
+    computed = record.get("computed") if isinstance(record.get("computed"), dict) else {}
+    return computed.get("summary", {}).get("rmb_per_m") if isinstance(computed.get("summary"), dict) else None
+
+
+def calculate_change_percent(old_record: Dict[str, Any], new_record: Dict[str, Any]) -> Optional[str]:
+    old_price = to_decimal(record_summary_price(old_record))
+    new_price = to_decimal(record_summary_price(new_record))
+    if old_price is None or new_price is None or old_price == 0:
+        return None
+    percent = (new_price - old_price) / old_price * 100
+    return format_decimal(percent)
+
+
+def append_price_history(
+    old_record: Dict[str, Any],
+    new_record: Dict[str, Any],
+    source: str,
+    changed_fields: Optional[List[str]] = None,
+) -> None:
+    if not price_record_changed(old_record, new_record):
+        return
+    history = load_history()
+    history.setdefault("version", 1)
+    history.setdefault("changes", []).append(
+        {
+            "changed_at": now_iso(),
+            "source": source,
+            "record_id": new_record.get("record_id") or old_record.get("record_id"),
+            "station_id": new_record.get("station_id") or old_record.get("station_id"),
+            "model_name": new_record.get("model_name") or old_record.get("model_name"),
+            "group": new_record.get("group") or old_record.get("group"),
+            "changed_fields": changed_fields or [
+                field
+                for field in PRICE_HISTORY_FIELDS
+                if old_record.get(field) != new_record.get(field)
+            ],
+            "old": history_value(old_record),
+            "new": history_value(new_record),
+            "summary_change_percent": calculate_change_percent(old_record, new_record),
+        }
+    )
+    save_history(history)
 
 
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
@@ -487,6 +799,10 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
         "value": format_decimal(numeric),
         "_sort": numeric,
         "copy_text": computed.get("copy_text"),
+        "confidence_score": confidence_label(record_confidence(record, station)[0]),
+        "confidence_reason": record_confidence(record, station)[1],
+        "last_verified_at": record_verified_at(station, record),
+        "stale_after_days": resolve_stale_after_days(station, record),
         "updated_at": record.get("updated_at"),
     }
 
@@ -555,6 +871,50 @@ def item_explain_parts(station: Dict[str, Any], record: Dict[str, Any], metric: 
     return unique_strings(parts)[:3]
 
 
+def median_decimal(values: List[Any]) -> Optional[Any]:
+    decimals = sorted(value for value in (to_decimal(item) for item in values) if value is not None)
+    if not decimals:
+        return None
+    middle = len(decimals) // 2
+    if len(decimals) % 2:
+        return decimals[middle]
+    return (decimals[middle - 1] + decimals[middle]) / 2
+
+
+def model_summary_medians(registry: Dict[str, Any]) -> Dict[str, Any]:
+    values_by_model: Dict[str, List[Any]] = {}
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    for record in registry.get("price_records", []):
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        try:
+            computed = compute(build_record_pricing_payload(station, record))
+        except Exception:
+            continue
+        model_key = normalize_key(record.get("model_name"))
+        summary = computed.get("summary", {}).get("rmb_per_m")
+        if model_key and to_decimal(summary) is not None:
+            values_by_model.setdefault(model_key, []).append(summary)
+    return {
+        model_key: median_decimal(values)
+        for model_key, values in values_by_model.items()
+        if median_decimal(values) is not None
+    }
+
+
+def anomaly_low_price_warnings(record: Dict[str, Any], computed: Dict[str, Any], medians: Dict[str, Any]) -> List[str]:
+    model_key = normalize_key(record.get("model_name"))
+    median_value = to_decimal(medians.get(model_key))
+    current = to_decimal(computed.get("summary", {}).get("rmb_per_m"))
+    if median_value is None or current is None or median_value <= 0:
+        return []
+    if current <= median_value * to_decimal(ANOMALY_LOW_RATIO):
+        return ["价格显著低于同模型中位数，请确认是否为倍率后价格或限时活动"]
+    return []
+
+
 def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     model_name = normalize_text(query.get("model_name"))
     group = normalize_text(query.get("group"))
@@ -562,6 +922,8 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
     direction = normalize_text(query.get("direction") or "asc").lower()
     include_terms = ensure_list(query.get("include_terms") or query.get("include") or query.get("包含"))
     exclude_terms = ensure_list(query.get("exclude_terms") or query.get("exclude") or query.get("排除"))
+    min_confidence = normalize_confidence(query.get("min_confidence") or query.get("最低可信度"))
+    medians = model_summary_medians(registry)
 
     matched = []
     stations_by_id = {
@@ -578,11 +940,19 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
             continue
         if exclude_terms and record_matches_terms(station, record, exclude_terms, require_all=False):
             continue
+        confidence_score, _ = record_confidence(record, station)
+        if min_confidence is not None and confidence_score < min_confidence:
+            continue
         item = build_rank_item(registry, record, metric)
         if item is None:
             continue
         computed = compute(build_record_pricing_payload(station, record))
         item["cheap_reasons"] = item_explain_parts(station, record, metric, computed)
+        item["warnings"] = record_health_warnings(
+            station,
+            record,
+            anomaly_low_price_warnings(record, computed, medians),
+        )
         matched.append(item)
 
     reverse = direction == "desc"
@@ -598,6 +968,7 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
             "direction": direction,
             "include_terms": include_terms,
             "exclude_terms": exclude_terms,
+            "min_confidence": min_confidence,
         },
         "count": len(matched),
         "items": matched,
@@ -741,6 +1112,15 @@ def extract_quick_filter_terms(text: str) -> Tuple[List[str], List[str]]:
     return unique_strings(include_terms), unique_strings(exclude_terms)
 
 
+def extract_quick_min_confidence(text: str) -> Optional[float]:
+    explicit = re.search(r"(?:可信度|confidence)\s*(?:>=|大于|至少|不低于|:|：)?\s*(\d+(?:\.\d+)?%?)", text, re.I)
+    if explicit:
+        return normalize_confidence(explicit.group(1))
+    if re.search(r"排除低可信|不要低可信|过滤低可信|只看可信|高可信|可信价格", text, re.I):
+        return LOW_CONFIDENCE_THRESHOLD
+    return None
+
+
 def is_quick_rank_query(text: str, payload: Dict[str, Any]) -> bool:
     if payload.get("mode") == "rank":
         return True
@@ -760,6 +1140,9 @@ def build_quick_rank_query(payload: Dict[str, Any]) -> Dict[str, Any]:
     detected_include_terms, detected_exclude_terms = extract_quick_filter_terms(text)
     include_terms = ensure_list(payload.get("include_terms") or payload.get("include") or payload.get("包含")) or detected_include_terms
     exclude_terms = ensure_list(payload.get("exclude_terms") or payload.get("exclude") or payload.get("排除")) or detected_exclude_terms
+    min_confidence = normalize_confidence(payload.get("min_confidence") or payload.get("最低可信度"))
+    if min_confidence is None:
+        min_confidence = extract_quick_min_confidence(text)
     return {
         "model_name": model_name,
         "group": group,
@@ -768,6 +1151,7 @@ def build_quick_rank_query(payload: Dict[str, Any]) -> Dict[str, Any]:
         "limit": limit,
         "include_terms": include_terms,
         "exclude_terms": exclude_terms,
+        "min_confidence": min_confidence,
     }
 
 
@@ -962,6 +1346,10 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
     if not pricing_payload:
         raise ValueError("缺少 pricing 对象")
 
+    _, _, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+
     station = upsert_station(registry, station_payload)
     station_ratio_override = (
         normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
@@ -996,6 +1384,13 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
 
     computed = compute(pricing_payload)
     timestamp = now_iso()
+    metadata_payload = {
+        **payload,
+        **pricing_payload,
+        "notes": normalize_text(payload.get("notes") or station.get("notes")),
+        "source": payload.get("source") or pricing_payload.get("source") or "manual",
+    }
+    confidence_score, confidence_reason = resolve_confidence(metadata_payload, station)
     record = {
         "record_id": f"{station['station_id']}::{normalize_key(computed['model_name'])}::{normalize_key(group)}",
         "station_id": station["station_id"],
@@ -1026,6 +1421,17 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         "recharge_ratio": resolve_station_recharge_ratio(station),
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
         "tags": unique_strings(ensure_list(payload.get("tags"))),
+        "confidence_score": confidence_score,
+        "confidence_reason": normalize_text(payload.get("confidence_reason") or pricing_payload.get("confidence_reason")) or confidence_reason,
+        "last_verified_at": (
+            normalize_text(payload.get("last_verified_at") or pricing_payload.get("last_verified_at") or payload.get("最后验证时间"))
+            or timestamp
+        ),
+        "stale_after_days": normalize_int(
+            payload.get("stale_after_days") or pricing_payload.get("stale_after_days") or payload.get("过期天数"),
+            resolve_stale_after_days(station, inherited_record or {}),
+        ),
+        "expires_at": normalize_text(payload.get("expires_at") or pricing_payload.get("expires_at") or payload.get("过期时间")),
         "computed": computed,
         "updated_at": timestamp,
     }
@@ -1036,8 +1442,12 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         registry.setdefault("price_records", []).append(record)
         action = "created"
     else:
-        record["created_at"] = registry["price_records"][record_index].get("created_at", timestamp)
+        old_record = deepcopy(registry["price_records"][record_index])
+        record["created_at"] = old_record.get("created_at", timestamp)
+        if not record.get("expires_at"):
+            record["expires_at"] = old_record.get("expires_at", "")
         registry["price_records"][record_index] = record
+        append_price_history(old_record, record, "upsert")
         action = "updated"
 
     station["updated_at"] = timestamp
@@ -1052,7 +1462,9 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
 
 def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or {})
-    station, score = find_station(registry, station_payload)
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
     if station is None or score == 0:
         raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
 
@@ -1077,6 +1489,14 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "group_note": ["group_note", "分组备注"],
         "multiplier": ["multiplier", "倍率"],
         "sale_price": ["sale_price", "售价", "站点售价"],
+    }
+    metadata_field_map = {
+        "source": ["source", "来源"],
+        "confidence_score": ["confidence_score", "可信度", "price_confidence"],
+        "confidence_reason": ["confidence_reason", "可信度说明"],
+        "last_verified_at": ["last_verified_at", "最后验证时间"],
+        "stale_after_days": ["stale_after_days", "过期天数"],
+        "expires_at": ["expires_at", "过期时间"],
     }
 
     pricing_payload: Dict[str, Any] = {
@@ -1110,7 +1530,33 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
                     changed_fields.append(target_field)
                 break
 
+    metadata_updates: Dict[str, Any] = {}
+    for target_field, source_keys in metadata_field_map.items():
+        for source_key in source_keys:
+            if source_key not in payload:
+                continue
+            value = payload[source_key]
+            if target_field == "confidence_score":
+                value = normalize_confidence(value)
+            elif target_field == "stale_after_days":
+                value = normalize_int(value, resolve_stale_after_days(station, record))
+            else:
+                value = normalize_text(value)
+            if record.get(target_field) != value:
+                metadata_updates[target_field] = value
+                changed_fields.append(target_field)
+            break
+
+    if "source" in metadata_updates and "confidence_score" not in metadata_updates:
+        score, reason = resolve_confidence({**record, **metadata_updates}, station)
+        metadata_updates["confidence_score"] = score
+        metadata_updates["confidence_reason"] = reason
+        changed_fields.extend(["confidence_score", "confidence_reason"])
+
     recomputed = compute(pricing_payload)
+    timestamp = now_iso()
+    if changed_fields and not any(field in metadata_updates for field in ("last_verified_at", "expires_at")):
+        metadata_updates["last_verified_at"] = timestamp
     record.update(
         {
             "input_price": pricing_payload.get("input_price"),
@@ -1123,10 +1569,13 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "recharge_ratio": resolve_station_recharge_ratio(station),
             "sale_price": pricing_payload.get("sale_price"),
             "computed": recomputed,
-            "updated_at": now_iso(),
+            "updated_at": timestamp,
         }
     )
+    record.update(metadata_updates)
+    old_record = deepcopy(registry["price_records"][record_index])
     registry["price_records"][record_index] = record
+    append_price_history(old_record, record, "patch-record", unique_strings(changed_fields))
     if station_ratio_changed:
         station["updated_at"] = record["updated_at"]
         recompute_station_records(registry, station, record["updated_at"])
@@ -1152,6 +1601,40 @@ def list_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, 
         items.append(record)
     return {
         "count": len(items),
+        "items": items,
+    }
+
+
+def query_price_history(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    history = load_history()
+    station_payload = deepcopy(query.get("station") or query)
+    station, score = find_station(registry, station_payload)
+    station_id = normalize_text(query.get("station_id") or (station or {}).get("station_id"))
+    model_name = normalize_text(query.get("model_name") or query.get("模型名称"))
+    group = normalize_text(query.get("group") or query.get("分组"))
+    limit = int(query.get("limit") or 20)
+
+    items = []
+    for change in history.get("changes", []):
+        if station_id and normalize_text(change.get("station_id")) != station_id:
+            continue
+        if model_name and normalize_key(change.get("model_name")) != normalize_key(model_name):
+            continue
+        if group and normalize_key(change.get("group")) != normalize_key(group):
+            continue
+        items.append(change)
+
+    items.sort(key=lambda item: normalize_text(item.get("changed_at")), reverse=True)
+    if limit > 0:
+        items = items[:limit]
+    return {
+        "count": len(items),
+        "station_match_score": score if station else 0,
+        "filters": {
+            "station_id": station_id or None,
+            "model_name": model_name or None,
+            "group": group or None,
+        },
         "items": items,
     }
 
@@ -1205,6 +1688,9 @@ def filtered_station_record_summary(
         rank_item = rank_items_by_record_id.get(normalize_text(record.get("record_id")))
         if rank_item:
             rendered_record["_cheap_reasons"] = rank_item.get("cheap_reasons") or []
+            rendered_record["_warnings"] = rank_item.get("warnings") or []
+            rendered_record["_confidence_score"] = rank_item.get("confidence_score")
+            rendered_record["_last_verified_at"] = rank_item.get("last_verified_at")
         records.append(rendered_record)
 
     return {
@@ -1305,18 +1791,30 @@ def append_station_markdown_block(
 
     has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
     has_cheap_reason = any(record.get("_cheap_reasons") for record in summary["records"])
-    if has_group_note and has_cheap_reason:
-        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 | 便宜原因 |")
-        lines.append("|---|---|---|---:|---|---:|---|")
-    elif has_group_note:
-        lines.append("| 模型 | 分组 | 分组备注 | 倍率 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---|---:|---|---:|")
-    elif has_cheap_reason:
-        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 | 便宜原因 |")
-        lines.append("|---|---|---:|---|---:|---|")
-    else:
-        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---:|---|---:|")
+    has_quality = any(
+        record.get("_warnings")
+        or record.get("_confidence_score") not in (None, "")
+        or record.get("_last_verified_at")
+        or record.get("confidence_score") not in (None, "")
+        or record.get("last_verified_at")
+        or record.get("expires_at")
+        for record in summary["records"]
+    )
+    headers = ["模型", "分组"]
+    aligns = ["---", "---"]
+    if has_group_note:
+        headers.append("分组备注")
+        aligns.append("---")
+    headers.extend(["倍率", "折算价格", "综合价"])
+    aligns.extend(["---:", "---", "---:"])
+    if has_cheap_reason:
+        headers.append("便宜原因")
+        aligns.append("---")
+    if has_quality:
+        headers.extend(["可信度", "提醒"])
+        aligns.extend(["---:", "---"])
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("|" + "|".join(aligns) + "|")
 
     for record in summary["records"]:
         computed = compute(build_record_pricing_payload(station, record))
@@ -1324,36 +1822,20 @@ def append_station_markdown_block(
         group_note = normalize_text(record.get("group_note")) or "-"
         summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
         cheap_reason = "；".join(record.get("_cheap_reasons") or []) or "-"
-        if has_group_note and has_cheap_reason:
-            lines.append(
-                f"| {record.get('model_name')} | {record.get('group')} | {group_note} | {multiplier} | "
-                f"{build_computed_price_text(record, computed)} | {summary_cost} | {cheap_reason} |"
-            )
-        elif has_group_note:
-            lines.append(
-                f"| {record.get('model_name')} | {record.get('group')} | {group_note} | {multiplier} | "
-                f"{build_computed_price_text(record, computed)} | {summary_cost} |"
-            )
-        elif has_cheap_reason:
-            lines.append(
-                f"| {record.get('model_name')} | {record.get('group')} | {multiplier} | "
-                f"{build_computed_price_text(record, computed)} | {summary_cost} | {cheap_reason} |"
-            )
-        else:
-            lines.append(
-                f"| {record.get('model_name')} | {record.get('group')} | {multiplier} | "
-                f"{build_computed_price_text(record, computed)} | {summary_cost} |"
-            )
+        row = [normalize_text(record.get("model_name")), normalize_text(record.get("group"))]
+        if has_group_note:
+            row.append(group_note)
+        row.extend([multiplier, build_computed_price_text(record, computed), summary_cost])
+        if has_cheap_reason:
+            row.append(cheap_reason)
+        if has_quality:
+            score, _ = record_confidence(record, station)
+            warnings = record.get("_warnings") or record_health_warnings(station, record)
+            row.extend([confidence_label(record.get("_confidence_score") or score), "；".join(warnings) or "-"])
+        lines.append("| " + " | ".join(row) + " |")
 
     if not summary["records"]:
-        if has_group_note and has_cheap_reason:
-            lines.append("| - | - | - | - | 暂无价格记录 | - | - |")
-        elif has_group_note:
-            lines.append("| - | - | - | - | 暂无价格记录 | - |")
-        elif has_cheap_reason:
-            lines.append("| - | - | - | 暂无价格记录 | - | - |")
-        else:
-            lines.append("| - | - | - | 暂无价格记录 | - |")
+        lines.append("| " + " | ".join(["-" for _ in headers]) + " |")
     lines.append("")
 
 
@@ -1546,6 +2028,7 @@ def main() -> None:
             "leaderboard",
             "update-station",
             "patch-record",
+            "history",
             "stations-md",
             "cleanup-test",
         ],
@@ -1573,6 +2056,8 @@ def main() -> None:
         result = update_station_fields(registry, payload)
     elif args.command == "patch-record":
         result = patch_record_fields(registry, payload)
+    elif args.command == "history":
+        result = query_price_history(registry, payload)
     elif args.command == "stations-md":
         result = build_station_markdown(registry, payload)
     elif args.command == "cleanup-test":

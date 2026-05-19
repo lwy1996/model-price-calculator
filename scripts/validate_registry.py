@@ -10,10 +10,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import compute, parse_ratio, to_decimal
 from model_catalog import canonical_model_name
-from site_price_registry import build_record_pricing_payload, normalize_key, normalize_text
+from site_price_registry import (
+    build_record_pricing_payload,
+    normalize_confidence,
+    normalize_key,
+    normalize_text,
+    parse_iso_datetime,
+)
 
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
+HISTORY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-history.json"
 
 
 def load_json_file(path: Path) -> Dict[str, Any]:
@@ -97,6 +104,32 @@ def validate_stations(registry: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], D
             except ValueError as exc:
                 issues.append(issue("error", "invalid_station_recharge_ratio", str(exc), {"station_id": station_id}))
 
+        for field in ("last_verified_at", "expires_at"):
+            value = normalize_text(station.get(field))
+            if value and parse_iso_datetime(value) is None:
+                issues.append(
+                    issue(
+                        "warning",
+                        "invalid_station_datetime",
+                        f"站点时间字段无法解析: {field}",
+                        {"station_id": station_id, "field": field, "value": value},
+                    )
+                )
+        stale_after_days = station.get("stale_after_days")
+        if stale_after_days not in (None, ""):
+            try:
+                if int(stale_after_days) <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                issues.append(
+                    issue(
+                        "warning",
+                        "invalid_station_stale_after_days",
+                        "站点 stale_after_days 必须是正整数",
+                        {"station_id": station_id, "stale_after_days": stale_after_days},
+                    )
+                )
+
         signature_values = [
             normalize_key(station.get("name")),
             normalize_key(station.get("website")),
@@ -139,6 +172,19 @@ def validate_price_value(record: Dict[str, Any], field: str, issues: List[Dict[s
                     "field": field,
                     "value": value,
                 },
+            )
+        )
+
+
+def validate_optional_date(record: Dict[str, Any], field: str, issues: List[Dict[str, Any]]) -> None:
+    value = normalize_text(record.get(field))
+    if value and parse_iso_datetime(value) is None:
+        issues.append(
+            issue(
+                "warning",
+                "invalid_datetime",
+                f"时间字段无法解析: {field}",
+                {"record_id": record.get("record_id"), "field": field, "value": value},
             )
         )
 
@@ -199,6 +245,35 @@ def validate_records(registry: Dict[str, Any], stations_by_id: Dict[str, Dict[st
         for field in ("input_price", "output_price", "cache_price", "cache_read_price", "cache_write_price"):
             validate_price_value(record, field, issues)
 
+        confidence = record.get("confidence_score")
+        if confidence not in (None, "") and normalize_confidence(confidence) is None:
+            issues.append(
+                issue(
+                    "warning",
+                    "invalid_confidence_score",
+                    "confidence_score 必须是 0-1 小数或 0-100 百分数",
+                    {"record_id": record_id, "confidence_score": confidence},
+                )
+            )
+
+        for field in ("last_verified_at", "expires_at"):
+            validate_optional_date(record, field, issues)
+
+        stale_after_days = record.get("stale_after_days")
+        if stale_after_days not in (None, ""):
+            try:
+                if int(stale_after_days) <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                issues.append(
+                    issue(
+                        "warning",
+                        "invalid_stale_after_days",
+                        "stale_after_days 必须是正整数",
+                        {"record_id": record_id, "stale_after_days": stale_after_days},
+                    )
+                )
+
         station = stations_by_id[station_id]
         ratio = normalize_text(record.get("recharge_ratio") or station.get("recharge_ratio") or "1:1")
         try:
@@ -242,12 +317,34 @@ def validate_records(registry: Dict[str, Any], stations_by_id: Dict[str, Dict[st
     return issues
 
 
+def validate_history_file() -> List[Dict[str, Any]]:
+    if not HISTORY_PATH.exists():
+        return [issue("warning", "missing_history_file", "缺少价格变更历史文件 assets/site-price-history.json")]
+    try:
+        history = load_json_file(HISTORY_PATH)
+    except Exception as exc:
+        return [issue("warning", "invalid_history_file", f"价格变更历史文件无法读取: {exc}")]
+    if not isinstance(history.get("changes"), list):
+        return [issue("warning", "invalid_history_changes", "site-price-history.json 的 changes 必须是数组")]
+    issues = []
+    for index, change in enumerate(history.get("changes", [])):
+        if not isinstance(change, dict):
+            issues.append(issue("warning", "invalid_history_item", "历史记录必须是对象", {"index": index}))
+            continue
+        if not normalize_text(change.get("record_id")):
+            issues.append(issue("warning", "missing_history_record_id", "历史记录缺少 record_id", {"index": index}))
+        if parse_iso_datetime(change.get("changed_at")) is None:
+            issues.append(issue("warning", "invalid_history_changed_at", "历史记录 changed_at 无法解析", {"index": index}))
+    return issues
+
+
 def validate_registry(registry: Dict[str, Any]) -> Dict[str, Any]:
     issues = []
     issues.extend(validate_top_level(registry))
     station_issues, stations_by_id = validate_stations(registry)
     issues.extend(station_issues)
     issues.extend(validate_records(registry, stations_by_id))
+    issues.extend(validate_history_file())
 
     counts = {
         "error": sum(1 for item in issues if item.get("level") == "error"),
