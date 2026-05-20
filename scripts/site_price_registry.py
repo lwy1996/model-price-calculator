@@ -1572,7 +1572,8 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "cache_write_price": pricing_payload.get("cache_write_price"),
             "group_note": pricing_payload.get("group_note"),
             "multiplier": pricing_payload.get("multiplier"),
-            "recharge_ratio": resolve_station_recharge_ratio(station),
+            # patch-record 只应回写明确参与本次计算的充值比，避免站点级字段缺失时误回退到 1:1。
+            "recharge_ratio": pricing_payload.get("recharge_ratio") or resolve_station_recharge_ratio(station, record),
             "sale_price": pricing_payload.get("sale_price"),
             "computed": recomputed,
             "updated_at": timestamp,
@@ -1592,6 +1593,61 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "station": station,
         "record": record,
         "changed_fields": unique_strings(changed_fields),
+        "station_snapshot": build_station_snapshot(registry, station),
+    })
+
+
+def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+    if station is None or score == 0:
+        raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
+
+    model_name = normalize_text(payload.get("model_name") or payload.get("模型名称"))
+    group = normalize_text(payload.get("group") or payload.get("分组"))
+
+    kept_records = []
+    removed_records = []
+    for record in registry.get("price_records", []):
+        if record.get("station_id") != station.get("station_id"):
+            kept_records.append(record)
+            continue
+        if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
+            kept_records.append(record)
+            continue
+        if group and normalize_key(record.get("group")) != normalize_key(group):
+            kept_records.append(record)
+            continue
+        removed_records.append(deepcopy(record))
+
+    if not removed_records:
+        return {
+            "removed_count": 0,
+            "removed_records": [],
+            "station_snapshot": build_station_snapshot(registry, station),
+        }
+
+    registry["price_records"] = kept_records
+    timestamp = now_iso()
+    station["updated_at"] = timestamp
+    for record in removed_records:
+        append_price_history(record, {}, "delete-record", ["deleted"])
+    save_registry(registry)
+
+    return refresh_dashboard_after_write(registry, {
+        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
+        "station": station,
+        "removed_count": len(removed_records),
+        "removed_records": [
+            {
+                "record_id": record.get("record_id"),
+                "model_name": record.get("model_name"),
+                "group": record.get("group"),
+            }
+            for record in removed_records
+        ],
         "station_snapshot": build_station_snapshot(registry, station),
     })
 
@@ -3204,6 +3260,7 @@ def main() -> None:
             "leaderboard",
             "update-station",
             "patch-record",
+            "delete-records",
             "history",
             "stations-md",
             "stations-html",
@@ -3239,6 +3296,8 @@ def main() -> None:
         result = update_station_fields(registry, payload)
     elif args.command == "patch-record":
         result = patch_record_fields(registry, payload)
+    elif args.command == "delete-records":
+        result = delete_records(registry, payload)
     elif args.command == "history":
         result = query_price_history(registry, payload)
     elif args.command == "stations-md":

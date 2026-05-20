@@ -92,15 +92,17 @@
       "aliases": [
         "Coolplay API",
         "https://cp.coolplay-api.fun:55555",
-        "https://cp.coolplay-api.fun:55555/v1"
+        "https://cp.coolplay-api.fun:55555/v1",
+        "https://yuxing.coolplay-api.fun:18888"
       ],
-      "website": "https://cp.coolplay-api.fun:55555",
+      "website": "https://yuxing.coolplay-api.fun:18888",
       "api_base_url": "https://cp.coolplay-api.fun:55555/v1",
       "group_multipliers": {},
       "is_test_data": false,
       "notes": "已添加wx群-Coolplay-API售后交流2群，但是wx群公告提供了新站点 不太靠谱的样子",
       "created_at": "2026-05-19T03:19:34+00:00",
-      "updated_at": "2026-05-19T03:19:34+00:00"
+      "updated_at": "2026-05-20T15:31:24+00:00",
+      "recharge_ratio": "1:1"
     },
     {
       "station_id": "shunfen6-win",
@@ -175,7 +177,8 @@
       "is_test_data": false,
       "notes": "已添加QQ群-rotreeAI中转站服务群-支持在线gpt-image-2",
       "created_at": "2026-05-19T05:05:45+00:00",
-      "updated_at": "2026-05-19T05:09:01+00:00"
+      "updated_at": "2026-05-20T15:03:33+00:00",
+      "recharge_ratio": "1:6"
     },
     {
       "station_id": "果冻api",
@@ -1987,180 +1990,6 @@
       "created_at": "2026-05-19T02:58:01+00:00"
     },
     {
-      "record_id": "coolplay-api::gpt-5-4::default",
-      "station_id": "coolplay-api",
-      "model_name": "gpt-5.4",
-      "group": "default",
-      "source": "manual",
-      "currency_hint": "",
-      "input_price": "2.50 / 1M",
-      "output_price": "15.00 / 1M",
-      "cache_price": null,
-      "cache_read_price": "0.25 / 1M",
-      "cache_write_price": null,
-      "multiplier": 1.5,
-      "recharge_ratio": "1:20",
-      "sale_price": null,
-      "tags": [],
-      "computed": {
-        "model_name": "gpt-5.4",
-        "group": "default",
-        "multiplier": "1.5000",
-        "recharge_ratio": {
-          "display": "1:20",
-          "unit_rate": "0.0500"
-        },
-        "copy_text": "gpt-5.4-default-输入$2.5000-输出$15.0000-缓存读$0.2500",
-        "dimensions": {
-          "input": {
-            "usd_per_m": "2.5000",
-            "multiplied_usd_per_m": "3.7500",
-            "rmb_per_m": "0.1875"
-          },
-          "output": {
-            "usd_per_m": "15.0000",
-            "multiplied_usd_per_m": "22.5000",
-            "rmb_per_m": "1.1250"
-          },
-          "cache": null,
-          "cache_read": {
-            "usd_per_m": "0.2500",
-            "multiplied_usd_per_m": "0.3750",
-            "rmb_per_m": "0.0188"
-          },
-          "cache_write": null
-        },
-        "summary": {
-          "base_usd_per_m": "17.7500",
-          "multiplied_usd_per_m": "26.6250",
-          "rmb_per_m": "1.3313"
-        },
-        "comparisons": {
-          "output_input_ratio": "6.0000",
-          "cache_read_discount_vs_input": "0.1000",
-          "cache_write_ratio_vs_input": null
-        }
-      },
-      "updated_at": "2026-05-19T03:19:34+00:00",
-      "created_at": "2026-05-19T03:19:34+00:00"
-    },
-    {
-      "record_id": "coolplay-api::gpt-5-5::default",
-      "station_id": "coolplay-api",
-      "model_name": "gpt-5.5",
-      "group": "default",
-      "source": "manual",
-      "currency_hint": "",
-      "input_price": "5.00 / 1M",
-      "output_price": "30.00 / 1M",
-      "cache_price": null,
-      "cache_read_price": "0.50 / 1M",
-      "cache_write_price": null,
-      "multiplier": 1.5,
-      "recharge_ratio": "1:20",
-      "sale_price": null,
-      "tags": [],
-      "computed": {
-        "model_name": "gpt-5.5",
-        "group": "default",
-        "multiplier": "1.5000",
-        "recharge_ratio": {
-          "display": "1:20",
-          "unit_rate": "0.0500"
-        },
-        "copy_text": "gpt-5.5-default-输入$5.0000-输出$30.0000-缓存读$0.5000",
-        "dimensions": {
-          "input": {
-            "usd_per_m": "5.0000",
-            "multiplied_usd_per_m": "7.5000",
-            "rmb_per_m": "0.3750"
-          },
-          "output": {
-            "usd_per_m": "30.0000",
-            "multiplied_usd_per_m": "45.0000",
-            "rmb_per_m": "2.2500"
-          },
-          "cache": null,
-          "cache_read": {
-            "usd_per_m": "0.5000",
-            "multiplied_usd_per_m": "0.7500",
-            "rmb_per_m": "0.0375"
-          },
-          "cache_write": null
-        },
-        "summary": {
-          "base_usd_per_m": "35.5000",
-          "multiplied_usd_per_m": "53.2500",
-          "rmb_per_m": "2.6625"
-        },
-        "comparisons": {
-          "output_input_ratio": "6.0000",
-          "cache_read_discount_vs_input": "0.1000",
-          "cache_write_ratio_vs_input": null
-        }
-      },
-      "updated_at": "2026-05-19T03:19:34+00:00",
-      "created_at": "2026-05-19T03:19:34+00:00"
-    },
-    {
-      "record_id": "coolplay-api::gpt-5-4-mini::default",
-      "station_id": "coolplay-api",
-      "model_name": "gpt-5.4-mini",
-      "group": "default",
-      "source": "manual",
-      "currency_hint": "",
-      "input_price": "0.75 / 1M",
-      "output_price": "4.50 / 1M",
-      "cache_price": null,
-      "cache_read_price": "0.075 / 1M",
-      "cache_write_price": null,
-      "multiplier": 1.5,
-      "recharge_ratio": "1:20",
-      "sale_price": null,
-      "tags": [],
-      "computed": {
-        "model_name": "gpt-5.4-mini",
-        "group": "default",
-        "multiplier": "1.5000",
-        "recharge_ratio": {
-          "display": "1:20",
-          "unit_rate": "0.0500"
-        },
-        "copy_text": "gpt-5.4-mini-default-输入$0.7500-输出$4.5000-缓存读$0.0750",
-        "dimensions": {
-          "input": {
-            "usd_per_m": "0.7500",
-            "multiplied_usd_per_m": "1.1250",
-            "rmb_per_m": "0.0563"
-          },
-          "output": {
-            "usd_per_m": "4.5000",
-            "multiplied_usd_per_m": "6.7500",
-            "rmb_per_m": "0.3375"
-          },
-          "cache": null,
-          "cache_read": {
-            "usd_per_m": "0.0750",
-            "multiplied_usd_per_m": "0.1125",
-            "rmb_per_m": "0.0056"
-          },
-          "cache_write": null
-        },
-        "summary": {
-          "base_usd_per_m": "5.3250",
-          "multiplied_usd_per_m": "7.9875",
-          "rmb_per_m": "0.3994"
-        },
-        "comparisons": {
-          "output_input_ratio": "6.0000",
-          "cache_read_discount_vs_input": "0.1000",
-          "cache_write_ratio_vs_input": null
-        }
-      },
-      "updated_at": "2026-05-19T03:19:34+00:00",
-      "created_at": "2026-05-19T03:19:34+00:00"
-    },
-    {
       "record_id": "shunfen6-win::gpt-5-4::codex-vip",
       "station_id": "shunfen6-win",
       "model_name": "gpt-5.4",
@@ -2753,14 +2582,14 @@
       "cache_read_price": "0.25 / 1M",
       "cache_write_price": null,
       "group_note": "支持5.5，支持5.4，codex，间歇供应，若无响应请更换分组",
-      "multiplier": 0.1,
+      "multiplier": 0.5,
       "recharge_ratio": "1:6",
       "sale_price": null,
       "tags": [],
       "computed": {
         "model_name": "gpt-5.4",
         "group": "限时特价",
-        "multiplier": "0.1000",
+        "multiplier": "0.5000",
         "recharge_ratio": {
           "display": "1:6",
           "unit_rate": "0.1667"
@@ -2769,26 +2598,26 @@
         "dimensions": {
           "input": {
             "usd_per_m": "2.5000",
-            "multiplied_usd_per_m": "0.2500",
-            "rmb_per_m": "0.0417"
+            "multiplied_usd_per_m": "1.2500",
+            "rmb_per_m": "0.2083"
           },
           "output": {
             "usd_per_m": "15.0000",
-            "multiplied_usd_per_m": "1.5000",
-            "rmb_per_m": "0.2500"
+            "multiplied_usd_per_m": "7.5000",
+            "rmb_per_m": "1.2500"
           },
           "cache": null,
           "cache_read": {
             "usd_per_m": "0.2500",
-            "multiplied_usd_per_m": "0.0250",
-            "rmb_per_m": "0.0042"
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.0208"
           },
           "cache_write": null
         },
         "summary": {
           "base_usd_per_m": "17.7500",
-          "multiplied_usd_per_m": "1.7750",
-          "rmb_per_m": "0.2958"
+          "multiplied_usd_per_m": "8.8750",
+          "rmb_per_m": "1.4792"
         },
         "comparisons": {
           "output_input_ratio": "6.0000",
@@ -2796,8 +2625,9 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
-      "created_at": "2026-05-19T05:05:45+00:00"
+      "updated_at": "2026-05-20T15:10:23+00:00",
+      "created_at": "2026-05-19T05:05:45+00:00",
+      "last_verified_at": "2026-05-20T14:57:53+00:00"
     },
     {
       "record_id": "rotreeapi::gpt-5-5::限时特价",
@@ -2812,14 +2642,14 @@
       "cache_read_price": "0.50 / 1M",
       "cache_write_price": null,
       "group_note": "支持5.5，支持5.4，codex，间歇供应，若无响应请更换分组",
-      "multiplier": 0.1,
+      "multiplier": 0.5,
       "recharge_ratio": "1:6",
       "sale_price": null,
       "tags": [],
       "computed": {
         "model_name": "gpt-5.5",
         "group": "限时特价",
-        "multiplier": "0.1000",
+        "multiplier": "0.5000",
         "recharge_ratio": {
           "display": "1:6",
           "unit_rate": "0.1667"
@@ -2828,26 +2658,26 @@
         "dimensions": {
           "input": {
             "usd_per_m": "5.0000",
-            "multiplied_usd_per_m": "0.5000",
-            "rmb_per_m": "0.0833"
+            "multiplied_usd_per_m": "2.5000",
+            "rmb_per_m": "0.4167"
           },
           "output": {
             "usd_per_m": "30.0000",
-            "multiplied_usd_per_m": "3.0000",
-            "rmb_per_m": "0.5000"
+            "multiplied_usd_per_m": "15.0000",
+            "rmb_per_m": "2.5000"
           },
           "cache": null,
           "cache_read": {
             "usd_per_m": "0.5000",
-            "multiplied_usd_per_m": "0.0500",
-            "rmb_per_m": "0.0083"
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.0417"
           },
           "cache_write": null
         },
         "summary": {
           "base_usd_per_m": "35.5000",
-          "multiplied_usd_per_m": "3.5500",
-          "rmb_per_m": "0.5917"
+          "multiplied_usd_per_m": "17.7500",
+          "rmb_per_m": "2.9583"
         },
         "comparisons": {
           "output_input_ratio": "6.0000",
@@ -2855,8 +2685,9 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
-      "created_at": "2026-05-19T05:05:45+00:00"
+      "updated_at": "2026-05-20T15:10:23+00:00",
+      "created_at": "2026-05-19T05:05:45+00:00",
+      "last_verified_at": "2026-05-20T15:10:23+00:00"
     },
     {
       "record_id": "rotreeapi::gpt-5-4::code-plus",
@@ -2914,7 +2745,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:05:45+00:00"
     },
     {
@@ -2973,7 +2804,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:05:45+00:00"
     },
     {
@@ -3032,7 +2863,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:05:45+00:00"
     },
     {
@@ -3091,7 +2922,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:05:45+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:05:45+00:00"
     },
     {
@@ -3150,7 +2981,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:09:01+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:09:01+00:00"
     },
     {
@@ -3209,7 +3040,7 @@
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-19T05:09:01+00:00",
+      "updated_at": "2026-05-20T15:03:33+00:00",
       "created_at": "2026-05-19T05:09:01+00:00"
     },
     {
@@ -9889,6 +9720,262 @@
       },
       "updated_at": "2026-05-20T08:03:45+00:00",
       "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "coolplay-api::gpt-5-4::codex特惠",
+      "station_id": "coolplay-api",
+      "model_name": "gpt-5.4",
+      "group": "codex特惠",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": "低缓，plus，支持gpt-5.5, gpt5.4",
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.7,
+      "confidence_reason": "社群公告",
+      "last_verified_at": "2026-05-20T15:31:23+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex特惠",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex特惠-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0375",
+            "rmb_per_m": "0.0375"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "2.6625",
+          "rmb_per_m": "2.6625"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T15:31:23+00:00",
+      "created_at": "2026-05-20T15:31:23+00:00"
+    },
+    {
+      "record_id": "coolplay-api::gpt-5-5::codex特惠",
+      "station_id": "coolplay-api",
+      "model_name": "gpt-5.5",
+      "group": "codex特惠",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": "低缓，plus，支持gpt-5.5, gpt5.4",
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.7,
+      "confidence_reason": "社群公告",
+      "last_verified_at": "2026-05-20T15:31:23+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex特惠",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex特惠-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.7500",
+            "rmb_per_m": "0.7500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "4.5000",
+            "rmb_per_m": "4.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0750",
+            "rmb_per_m": "0.0750"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "5.3250",
+          "rmb_per_m": "5.3250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T15:31:23+00:00",
+      "created_at": "2026-05-20T15:31:23+00:00"
+    },
+    {
+      "record_id": "coolplay-api::gpt-5-4::codex-pro",
+      "station_id": "coolplay-api",
+      "model_name": "gpt-5.4",
+      "group": "codex-pro",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": "高缓，稳定，支持gpt-5.5, gpt5.4，gpt-image-2等模式",
+      "multiplier": 0.4,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.7,
+      "confidence_reason": "社群公告",
+      "last_verified_at": "2026-05-20T15:31:23+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "codex-pro",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-codex-pro-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "1.0000",
+            "rmb_per_m": "1.0000"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "6.0000",
+            "rmb_per_m": "6.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.1000",
+            "rmb_per_m": "0.1000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "7.1000",
+          "rmb_per_m": "7.1000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T15:31:23+00:00",
+      "created_at": "2026-05-20T15:31:23+00:00"
+    },
+    {
+      "record_id": "coolplay-api::gpt-5-5::codex-pro",
+      "station_id": "coolplay-api",
+      "model_name": "gpt-5.5",
+      "group": "codex-pro",
+      "source": "manual",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": "高缓，稳定，支持gpt-5.5, gpt5.4，gpt-image-2等模式",
+      "multiplier": 0.4,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.7,
+      "confidence_reason": "社群公告",
+      "last_verified_at": "2026-05-20T15:31:24+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "codex-pro",
+        "multiplier": "0.4000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-codex-pro-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "2.0000",
+            "rmb_per_m": "2.0000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "12.0000",
+            "rmb_per_m": "12.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.2000",
+            "rmb_per_m": "0.2000"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "14.2000",
+          "rmb_per_m": "14.2000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T15:31:24+00:00",
+      "created_at": "2026-05-20T15:31:24+00:00"
     }
   ]
 }
