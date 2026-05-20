@@ -682,6 +682,51 @@
       "expires_at": "",
       "created_at": "2026-05-20T08:03:45+00:00",
       "updated_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "station_id": "pixelapi",
+      "name": "PixelAPI",
+      "aliases": [
+        "PixelAPI",
+        "https://pixel.try-chatapi.com"
+      ],
+      "website": "https://pixel.try-chatapi.com",
+      "recharge_ratio": "1:1",
+      "group_multipliers": {
+        "free共享号池": 0.05,
+        "plus共享号池": 0.06,
+        "team共享号池": 0.1,
+        "pro共享号池": 0.12,
+        "codex兜底": 0.15
+      },
+      "is_test_data": false,
+      "notes": "共享号池分佣金模式-比较新颖-而且支持一个key使用多个分组路由模式-已检测",
+      "last_verified_at": "",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "created_at": "2026-05-20T08:03:45+00:00",
+      "updated_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "station_id": "nikoapi",
+      "name": "NikoApi",
+      "aliases": [
+        "NikoApi",
+        "https://nikoapi.xyz"
+      ],
+      "website": "https://nikoapi.xyz",
+      "recharge_ratio": "0.8:1",
+      "group_multipliers": {
+        "低价1gpt": 0.04,
+        "低价2gpt": 0.1
+      },
+      "is_test_data": false,
+      "notes": "已添加QQ群-Niko大模型中转站 使用了OIDC绑定，模型映射gpt-5.4(dj-gpt-5.4跟tf-gpt-5.4)-已检测",
+      "last_verified_at": "",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "created_at": "2026-05-20T08:03:45+00:00",
+      "updated_at": "2026-05-20T08:03:45+00:00"
     }
   ],
   "price_records": [
@@ -8939,6 +8984,902 @@
           "base_usd_per_m": "7.1000",
           "multiplied_usd_per_m": "7.1000",
           "rmb_per_m": "7.1000"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-4::free共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.4",
+      "group": "FREE共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.05,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "FREE共享号池",
+        "multiplier": "0.0500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-FREE共享号池-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.1250",
+            "rmb_per_m": "0.1250"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "0.7500",
+            "rmb_per_m": "0.7500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0125",
+            "rmb_per_m": "0.0125"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "0.8875",
+          "rmb_per_m": "0.8875"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-4::plus共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.4",
+      "group": "PLUS共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.06,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "PLUS共享号池",
+        "multiplier": "0.0600",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-PLUS共享号池-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.1500",
+            "rmb_per_m": "0.1500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "0.9000",
+            "rmb_per_m": "0.9000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0150",
+            "rmb_per_m": "0.0150"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "1.0650",
+          "rmb_per_m": "1.0650"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-4::team共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.4",
+      "group": "TEAM共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "TEAM共享号池",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-TEAM共享号池-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0250",
+            "rmb_per_m": "0.0250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "1.7750",
+          "rmb_per_m": "1.7750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-4::pro共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.4",
+      "group": "PRO共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.12,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "PRO共享号池",
+        "multiplier": "0.1200",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-PRO共享号池-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3000",
+            "rmb_per_m": "0.3000"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.8000",
+            "rmb_per_m": "1.8000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0300",
+            "rmb_per_m": "0.0300"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "2.1300",
+          "rmb_per_m": "2.1300"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-4::codex兜底",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.4",
+      "group": "CODEX兜底",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.4",
+        "group": "CODEX兜底",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.4-CODEX兜底-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.3750",
+            "rmb_per_m": "0.3750"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "2.2500",
+            "rmb_per_m": "2.2500"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0375",
+            "rmb_per_m": "0.0375"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "2.6625",
+          "rmb_per_m": "2.6625"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-5::free共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.5",
+      "group": "FREE共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.05,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "FREE共享号池",
+        "multiplier": "0.0500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-FREE共享号池-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0250",
+            "rmb_per_m": "0.0250"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "1.7750",
+          "rmb_per_m": "1.7750"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-5::plus共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.5",
+      "group": "PLUS共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.06,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "PLUS共享号池",
+        "multiplier": "0.0600",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-PLUS共享号池-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.3000",
+            "rmb_per_m": "0.3000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "1.8000",
+            "rmb_per_m": "1.8000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0300",
+            "rmb_per_m": "0.0300"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "2.1300",
+          "rmb_per_m": "2.1300"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-5::team共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.5",
+      "group": "TEAM共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.1,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "TEAM共享号池",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-TEAM共享号池-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.5000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "3.0000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0500",
+            "rmb_per_m": "0.0500"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "3.5500",
+          "rmb_per_m": "3.5500"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-5::pro共享号池",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.5",
+      "group": "PRO共享号池",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.12,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "PRO共享号池",
+        "multiplier": "0.1200",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-PRO共享号池-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.6000",
+            "rmb_per_m": "0.6000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.6000",
+            "rmb_per_m": "3.6000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0600",
+            "rmb_per_m": "0.0600"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "4.2600",
+          "rmb_per_m": "4.2600"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "pixelapi::gpt-5-5::codex兜底",
+      "station_id": "pixelapi",
+      "model_name": "gpt-5.5",
+      "group": "CODEX兜底",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": null,
+      "multiplier": 0.15,
+      "recharge_ratio": "1:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "gpt-5.5",
+        "group": "CODEX兜底",
+        "multiplier": "0.1500",
+        "recharge_ratio": {
+          "display": "1:1",
+          "unit_rate": "1.0000"
+        },
+        "copy_text": "gpt-5.5-CODEX兜底-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.7500",
+            "rmb_per_m": "0.7500"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "4.5000",
+            "rmb_per_m": "4.5000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0750",
+            "rmb_per_m": "0.0750"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "5.3250",
+          "rmb_per_m": "5.3250"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "nikoapi::dj-gpt-5-4::低价1gpt",
+      "station_id": "nikoapi",
+      "model_name": "dj-gpt-5.4",
+      "group": "低价1GPT",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": "日抛账号",
+      "multiplier": 0.04,
+      "recharge_ratio": "0.8:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "dj-gpt-5.4",
+        "group": "低价1GPT",
+        "multiplier": "0.0400",
+        "recharge_ratio": {
+          "display": "0.8:1",
+          "unit_rate": "0.8000"
+        },
+        "copy_text": "dj-gpt-5.4-低价1GPT-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.1000",
+            "rmb_per_m": "0.0800"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "0.6000",
+            "rmb_per_m": "0.4800"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0100",
+            "rmb_per_m": "0.0080"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "0.7100",
+          "rmb_per_m": "0.5680"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "nikoapi::dj-gpt-5-5::低价1gpt",
+      "station_id": "nikoapi",
+      "model_name": "dj-gpt-5.5",
+      "group": "低价1GPT",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": "日抛账号",
+      "multiplier": 0.04,
+      "recharge_ratio": "0.8:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "dj-gpt-5.5",
+        "group": "低价1GPT",
+        "multiplier": "0.0400",
+        "recharge_ratio": {
+          "display": "0.8:1",
+          "unit_rate": "0.8000"
+        },
+        "copy_text": "dj-gpt-5.5-低价1GPT-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.2000",
+            "rmb_per_m": "0.1600"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "1.2000",
+            "rmb_per_m": "0.9600"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0200",
+            "rmb_per_m": "0.0160"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "1.4200",
+          "rmb_per_m": "1.1360"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "nikoapi::tf-gpt-5-4::低价2gpt",
+      "station_id": "nikoapi",
+      "model_name": "tf-gpt-5.4",
+      "group": "低价2GPT",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "2.50 / 1M",
+      "output_price": "15.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.25 / 1M",
+      "cache_write_price": null,
+      "group_note": "稳定首选",
+      "multiplier": 0.1,
+      "recharge_ratio": "0.8:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "tf-gpt-5.4",
+        "group": "低价2GPT",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "0.8:1",
+          "unit_rate": "0.8000"
+        },
+        "copy_text": "tf-gpt-5.4-低价2GPT-输入$2.5000-输出$15.0000-缓存读$0.2500",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "2.5000",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.2000"
+          },
+          "output": {
+            "usd_per_m": "15.0000",
+            "multiplied_usd_per_m": "1.5000",
+            "rmb_per_m": "1.2000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.0250",
+            "rmb_per_m": "0.0200"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "17.7500",
+          "multiplied_usd_per_m": "1.7750",
+          "rmb_per_m": "1.4200"
+        },
+        "comparisons": {
+          "output_input_ratio": "6.0000",
+          "cache_read_discount_vs_input": "0.1000",
+          "cache_write_ratio_vs_input": null
+        }
+      },
+      "updated_at": "2026-05-20T08:03:45+00:00",
+      "created_at": "2026-05-20T08:03:45+00:00"
+    },
+    {
+      "record_id": "nikoapi::tf-gpt-5-5::低价2gpt",
+      "station_id": "nikoapi",
+      "model_name": "tf-gpt-5.5",
+      "group": "低价2GPT",
+      "source": "用户手动录入",
+      "currency_hint": "",
+      "input_price": "5.00 / 1M",
+      "output_price": "30.00 / 1M",
+      "cache_price": null,
+      "cache_read_price": "0.50 / 1M",
+      "cache_write_price": null,
+      "group_note": "稳定首选",
+      "multiplier": 0.1,
+      "recharge_ratio": "0.8:1",
+      "sale_price": null,
+      "tags": [],
+      "confidence_score": 0.6,
+      "confidence_reason": "用户口述/手动记录",
+      "last_verified_at": "2026-05-20T08:03:45+00:00",
+      "stale_after_days": 30,
+      "expires_at": "",
+      "computed": {
+        "model_name": "tf-gpt-5.5",
+        "group": "低价2GPT",
+        "multiplier": "0.1000",
+        "recharge_ratio": {
+          "display": "0.8:1",
+          "unit_rate": "0.8000"
+        },
+        "copy_text": "tf-gpt-5.5-低价2GPT-输入$5.0000-输出$30.0000-缓存读$0.5000",
+        "dimensions": {
+          "input": {
+            "usd_per_m": "5.0000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.4000"
+          },
+          "output": {
+            "usd_per_m": "30.0000",
+            "multiplied_usd_per_m": "3.0000",
+            "rmb_per_m": "2.4000"
+          },
+          "cache": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.0500",
+            "rmb_per_m": "0.0400"
+          },
+          "cache_write": null
+        },
+        "summary": {
+          "base_usd_per_m": "35.5000",
+          "multiplied_usd_per_m": "3.5500",
+          "rmb_per_m": "2.8400"
         },
         "comparisons": {
           "output_input_ratio": "6.0000",
