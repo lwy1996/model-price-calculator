@@ -6,6 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from mysql_storage import mysql_enabled, load_model_catalog as load_mysql_model_catalog
+
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "assets" / "model-catalog.json"
 
@@ -21,6 +23,12 @@ def normalize_model_key(value: Any) -> str:
 
 @lru_cache(maxsize=1)
 def load_model_catalog() -> Dict[str, Any]:
+    if mysql_enabled():
+        data = load_mysql_model_catalog()
+        models = data.get("models")
+        if not isinstance(models, list):
+            raise ValueError("MySQL 模型目录缺少 models 数组")
+        return data
     with open(CATALOG_PATH, "r", encoding="utf-8-sig") as file:
         data = json.load(file)
     if not isinstance(data, dict):

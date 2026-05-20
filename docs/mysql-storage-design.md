@@ -66,3 +66,88 @@ WHERE `id` = ?
 3. 再将脚本存储层切换为 MySQL 主读写，并保留 JSON 导出命令作为备份。
 
 `mysql-mcp` 适合用于 Codex 做只读核对、报告和排障；Python 脚本运行时应使用常规 MySQL 驱动连接数据库，不应依赖 MCP 作为业务运行时。
+
+## 启用 MySQL 存储
+
+脚本默认继续使用本地 JSON。推荐复制模板创建本地配置：
+
+```powershell
+Copy-Item config/storage.example.json config/storage.local.json
+```
+
+然后编辑 `config/storage.local.json`：
+
+```json
+{
+  "backend": "mysql",
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "your_user",
+    "password": "your_password",
+    "database": "mpc_station"
+  }
+}
+```
+
+`config/storage.local.json` 已加入 `.gitignore`，可以存放本机真实连接信息，不应提交。
+
+如果需要临时覆盖配置，也可以继续使用环境变量：
+
+```powershell
+$env:MPC_STORAGE_BACKEND = "mysql"
+$env:MPC_STORAGE_CONFIG = "F:\path\to\storage.local.json"
+```
+
+环境变量优先级高于配置文件；读取顺序是 `MPC_STORAGE_CONFIG` 指定文件、`config/storage.local.json`、`config/storage.example.json`。
+
+已接入 MySQL 后端的脚本入口：
+
+- `scripts/site_price_registry.py`
+- `scripts/draft_site_price.py`
+- `scripts/model_catalog.py`
+
+MySQL 后端使用 `scripts/mysql_storage.py` 做适配层。现有业务逻辑仍使用旧的 registry/draft/catalog 字典结构，适配层负责 MySQL 表与旧结构之间的装配和回写。
+
+如需从 MySQL 导出旧 JSON 结构备份，可在配置好上述环境变量后运行：
+
+```powershell
+python scripts/export_mysql_json.py
+```
+
+默认导出到：
+
+```text
+runtime/mysql-json-export/
+```
+
+## 当前 JSON 数据同步方式
+
+先执行建表脚本，再从现有 JSON 生成导入 SQL：
+
+```powershell
+python scripts/export_mysql_seed.py
+```
+
+默认输出：
+
+```text
+runtime/mysql-seed-current-data.sql
+```
+
+这个脚本只读取现有 JSON，并生成可审查的 SQL 文件，不会连接或修改 MySQL。导入 SQL 会迁移：
+
+- `assets/site-price-registry.json` 中的站点、别名、分组倍率和价格记录
+- `assets/site-price-history.json` 中的价格变更历史
+- `assets/site-price-drafts.json` 中的草稿
+- `assets/model-catalog.json` 中的模型目录和模型别名
+
+导入时会按当前 MySQL 表结构主动忽略旧 JSON 中不再入库的字段，例如 `api_base_url`、`is_test_data`、`confidence_score`。
+
+建议执行顺序：
+
+1. 执行 `database/mysql/001_create_model_price_tables.sql`。
+2. 执行 `python scripts/export_mysql_seed.py`。
+3. 打开并审查 `runtime/mysql-seed-current-data.sql`。
+4. 在目标数据库执行 `runtime/mysql-seed-current-data.sql`。
+5. 执行只读核对 SQL，例如统计 `mpc_stations`、`mpc_price_records`、`mpc_price_history`、`mpc_models` 的数量。

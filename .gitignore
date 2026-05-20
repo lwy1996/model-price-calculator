@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+config/storage.local.json
+runtime/mysql-seed-current-data.sql
+runtime/mysql-json-export/

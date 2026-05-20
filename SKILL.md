@@ -10,7 +10,7 @@ description: 计算大模型 token 价格、倍率价格、充值比折算价格
 除了单次计算外，这个 skill 还负责维护“中转站价格库”：
 - 记录每个中转站的别名、站点名称、官网地址
 - 记录同一个中转站下的不同模型、不同分组价格
-- 每条价格记录维护可信度、最后验证时间、过期规则和异常提醒
+- 每条价格记录维护最后验证时间、过期规则和异常提醒
 - 如果站点未收录，先收录再写价格
 - 如果站点已收录，先检索再更新对应模型/分组
 - 每次收录或更新后，按同模型或同分组重新排序
@@ -39,12 +39,23 @@ description: 计算大模型 token 价格、倍率价格、充值比折算价格
 - 零依赖
 - 可直接随技能分发
 - 可本地备份和人工查看
-- 后续容易迁移到 SQLite / MySQL
+- 可通过环境变量切换到 MySQL 主存储
 
-价格库还支持“测试数据标识”：
-- 可在站点级写入 `is_test_data=true`
-- 测试站点会在列表中单独标识
-- 后续可统一执行清理，不影响正式录入站点
+如果 `config/storage.local.json` 中设置 `"backend": "mysql"`，脚本会改用 MySQL 作为主存储。配置模板见：
+`config/storage.example.json`
+
+也可以用环境变量临时覆盖配置：
+- `MPC_STORAGE_BACKEND`
+- `MPC_STORAGE_CONFIG`
+- `MPC_DB_HOST`
+- `MPC_DB_PORT`
+- `MPC_DB_USER`
+- `MPC_DB_PASSWORD`
+- `MPC_DB_NAME`
+
+MySQL 后端兼容 MySQL 5.6；复杂结构使用文本 JSON 字符串保存，`runtime/site-price-dashboard.html` 仍是派生缓存文件，不是事实来源。
+
+MySQL 结构不维护站点 API 地址、测试数据标识和价格可信度字段；删除统一使用 `deleted_at` 软删除。
 
 ## 工作流
 

@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
 from model_catalog import canonical_model_name
+from mysql_storage import mysql_enabled, load_history as load_mysql_history, load_registry as load_mysql_registry
+from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
 
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
@@ -57,24 +59,34 @@ def load_json_file(path: str) -> Dict[str, Any]:
 
 
 def load_registry() -> Dict[str, Any]:
+    if mysql_enabled():
+        return load_mysql_registry()
     if not REGISTRY_PATH.exists():
         return {"version": 1, "stations": [], "price_records": []}
     return load_json_file(str(REGISTRY_PATH))
 
 
 def save_registry(registry: Dict[str, Any]) -> None:
+    if mysql_enabled():
+        save_mysql_registry(registry)
+        return
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(REGISTRY_PATH, "w", encoding="utf-8") as file:
         json.dump(registry, file, ensure_ascii=False, indent=2)
 
 
 def load_history() -> Dict[str, Any]:
+    if mysql_enabled():
+        return load_mysql_history()
     if not HISTORY_PATH.exists():
         return {"version": 1, "changes": []}
     return load_json_file(str(HISTORY_PATH))
 
 
 def save_history(history: Dict[str, Any]) -> None:
+    if mysql_enabled():
+        save_mysql_history(history)
+        return
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(HISTORY_PATH, "w", encoding="utf-8") as file:
         json.dump(history, file, ensure_ascii=False, indent=2)
