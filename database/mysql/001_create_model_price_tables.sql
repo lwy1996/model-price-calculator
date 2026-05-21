@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS `mpc_stations` (
   `name` VARCHAR(191) NOT NULL DEFAULT '' COMMENT '站点名称',
   `website` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '官网地址',
   `invite_url` VARCHAR(500) NOT NULL DEFAULT '' COMMENT '邀请链接',
+  `is_checked` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已检测：0否，1是',
+  `checked_at` DATETIME NULL COMMENT '检测时间',
   `recharge_ratio` VARCHAR(64) NOT NULL DEFAULT '1:1' COMMENT '充值比，例如 1:1、1:6、29.99:1000',
   `notes` TEXT NULL COMMENT '站点备注',
   `created_at` DATETIME NOT NULL COMMENT '创建时间',

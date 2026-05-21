@@ -25,6 +25,8 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
             "name": args.station_name,
             "website": args.website,
             "invite_url": args.invite_url,
+            "is_checked": args.is_checked,
+            "checked_at": args.checked_at,
             "notes": args.notes,
         }
     }
@@ -86,6 +88,8 @@ def main() -> None:
     parser.add_argument("--station-name", help="Site display name")
     parser.add_argument("--website", help="Site website")
     parser.add_argument("--invite-url", help="Site invite URL")
+    parser.add_argument("--is-checked", action="store_true", help="Mark station as checked")
+    parser.add_argument("--checked-at", help="Station checked time")
     parser.add_argument("--group", help="Model group")
     parser.add_argument("--model-name", help="Model name override")
     parser.add_argument("--multiplier", type=float, help="Multiplier override")

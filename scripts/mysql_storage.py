@@ -7,7 +7,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import mysql.connector
+try:
+    import mysql.connector
+except ModuleNotFoundError:  # JSON 存储模式下允许未安装 mysql 依赖
+    mysql = None
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +46,8 @@ def mysql_enabled() -> bool:
 
 
 def connect():
+    if mysql is None:
+        raise RuntimeError("当前环境未安装 mysql-connector-python，无法启用 MySQL 存储")
     config = load_storage_config()
     host = env_or_config("MPC_DB_HOST", config, "host")
     user = env_or_config("MPC_DB_USER", config, "user")
@@ -182,6 +187,8 @@ def load_registry() -> Dict[str, Any]:
                 "aliases": [],
                 "website": row.get("website") or "",
                 "invite_url": row.get("invite_url") or "",
+                "is_checked": bool(row.get("is_checked")),
+                "checked_at": dt_to_iso(row.get("checked_at")),
                 "recharge_ratio": row.get("recharge_ratio") or "1:1",
                 "notes": row.get("notes") or "",
                 "created_at": dt_to_iso(row.get("created_at")),
@@ -267,12 +274,14 @@ def save_registry(registry: Dict[str, Any]) -> None:
             cursor.execute(
                 """
                 INSERT INTO mpc_stations
-                    (station_id, name, website, invite_url, recharge_ratio, notes, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (station_id, name, website, invite_url, is_checked, checked_at, recharge_ratio, notes, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     website = VALUES(website),
                     invite_url = VALUES(invite_url),
+                    is_checked = VALUES(is_checked),
+                    checked_at = VALUES(checked_at),
                     recharge_ratio = VALUES(recharge_ratio),
                     notes = VALUES(notes),
                     updated_at = VALUES(updated_at),
@@ -284,6 +293,8 @@ def save_registry(registry: Dict[str, Any]) -> None:
                     station.get("name") or "",
                     station.get("website") or "",
                     station.get("invite_url") or "",
+                    1 if station.get("is_checked") else 0,
+                    iso_to_mysql(station.get("checked_at")),
                     station.get("recharge_ratio") or "1:1",
                     station.get("notes"),
                     created_at,

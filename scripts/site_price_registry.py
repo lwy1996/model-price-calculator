@@ -50,6 +50,31 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def normalize_detection_flag(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    text = normalize_text(value).lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y", "是", "已检测"}:
+        return True
+    if text in {"0", "false", "no", "n", "否", "未检测"}:
+        return False
+    return None
+
+
+def station_payload_mentions_checked(station_payload: Dict[str, Any]) -> bool:
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    if detection_flag is True:
+        return True
+    return "已检测" in normalize_text(station_payload.get("notes"))
+
+
 def load_json_file(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8-sig") as file:
         data = json.load(file)
@@ -513,6 +538,14 @@ def derive_station_id(station_payload: Dict[str, Any]) -> str:
 def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> Dict[str, Any]:
     station, score = find_station(registry, station_payload)
     timestamp = now_iso()
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    auto_checked = station_payload_mentions_checked(station_payload)
+    checked_at_value = normalize_text(station_payload.get("checked_at") or station_payload.get("检测时间"))
     if station is None or score == 0:
         station = {
             "station_id": derive_station_id(station_payload),
@@ -525,6 +558,8 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
             "aliases": unique_strings(build_station_identifiers(station_payload, include_api=False)),
             "website": normalize_text(station_payload.get("website")),
             "invite_url": normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接")),
+            "is_checked": detection_flag if detection_flag is not None else auto_checked,
+            "checked_at": checked_at_value or (timestamp if (detection_flag is True or auto_checked) else ""),
             "recharge_ratio": normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1",
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
@@ -543,6 +578,17 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
     station["invite_url"] = normalize_text(
         station_payload.get("invite_url") or station_payload.get("邀请链接") or station.get("invite_url")
     )
+    if detection_flag is not None:
+        station["is_checked"] = detection_flag
+        if detection_flag:
+            station["checked_at"] = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+        else:
+            station["checked_at"] = checked_at_value or ""
+    elif auto_checked:
+        station["is_checked"] = True
+        station["checked_at"] = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+    elif checked_at_value:
+        station["checked_at"] = checked_at_value
     station["recharge_ratio"] = (
         normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
         or normalize_text(station.get("recharge_ratio"))
@@ -598,6 +644,34 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         if value != normalize_text(station.get("invite_url")):
             station["invite_url"] = value
             changed_fields.append("invite_url")
+
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    auto_checked = station_payload_mentions_checked(station_payload)
+    checked_at_value = normalize_text(station_payload.get("checked_at") or station_payload.get("检测时间"))
+    if detection_flag is not None:
+        if detection_flag != bool(station.get("is_checked")):
+            station["is_checked"] = detection_flag
+            changed_fields.append("is_checked")
+        target_checked_at = checked_at_value or (timestamp if detection_flag else "")
+        if normalize_text(station.get("checked_at")) != target_checked_at:
+            station["checked_at"] = target_checked_at
+            changed_fields.append("checked_at")
+    elif auto_checked:
+        if not bool(station.get("is_checked")):
+            station["is_checked"] = True
+            changed_fields.append("is_checked")
+        target_checked_at = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+        if normalize_text(station.get("checked_at")) != target_checked_at:
+            station["checked_at"] = target_checked_at
+            changed_fields.append("checked_at")
+    elif checked_at_value and normalize_text(station.get("checked_at")) != checked_at_value:
+        station["checked_at"] = checked_at_value
+        changed_fields.append("checked_at")
 
     if "recharge_ratio" in station_payload or "充值比" in station_payload:
         value = normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1"
@@ -1196,6 +1270,8 @@ def station_search_fields(station: Dict[str, Any], records: List[Dict[str, Any]]
         ("站点名称", normalize_text(station.get("name")), 8),
         ("官网", normalize_text(station.get("website")), 6),
         ("邀请链接", normalize_text(station.get("invite_url")), 5),
+        ("是否已检测", "已检测" if station.get("is_checked") else "未检测", 4),
+        ("检测时间", normalize_text(station.get("checked_at")), 3),
         ("API", normalize_text(station.get("api_base_url") or station.get("api_url")), 5),
         ("充值比", normalize_text(station.get("recharge_ratio")), 2),
         ("备注", normalize_text(station.get("notes")), 4),
@@ -1868,6 +1944,8 @@ def append_station_markdown_block(
 ) -> None:
     website = normalize_text(station.get("website")) or "未记录"
     invite_url = normalize_text(station.get("invite_url")) or "未记录"
+    checked_status = "已检测" if station.get("is_checked") else "未检测"
+    checked_at = iso_to_display(station.get("checked_at")) if normalize_text(station.get("checked_at")) else "未记录"
     recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
     notes = normalize_text(station.get("notes")) or "无"
     marker = "（测试）" if is_test_station(station) else ""
@@ -1875,6 +1953,8 @@ def append_station_markdown_block(
     lines.append(f"{index}. {station.get('name') or station.get('station_id')}{marker}")
     lines.append(f"官网：{website}")
     lines.append(f"邀请链接：{invite_url}")
+    lines.append(f"是否已检测：{checked_status}")
+    lines.append(f"检测时间：{checked_at}")
     lines.append(f"充值比：{recharge_ratio}")
     lines.append(f"备注：{notes}")
     if is_test_station(station):
@@ -2094,6 +2174,8 @@ def station_html_view(station: Dict[str, Any], summary: Dict[str, Any], index: i
         "station_id": normalize_text(station.get("station_id")),
         "website": normalize_text(station.get("website")) or "未记录",
         "invite_url": normalize_text(station.get("invite_url")) or "未记录",
+        "is_checked": bool(station.get("is_checked")),
+        "checked_at": iso_to_display(station.get("checked_at")) if normalize_text(station.get("checked_at")) else "未记录",
         "recharge_ratio": resolve_station_summary_recharge_ratio(station, summary),
         "notes": normalize_text(station.get("notes")) or "无",
         "is_test": is_test_station(station),
@@ -2259,6 +2341,7 @@ def render_station_cards(views: List[Dict[str, Any]]) -> str:
         invite_html = html_escape(invite_url)
         if invite_href:
             invite_html = f'<a href="{html_attr(invite_href)}" target="_blank" rel="noopener noreferrer">{html_escape(invite_url)}</a>'
+        checked_status = "已检测" if view.get("is_checked") else "未检测"
         rank_label = "Prime" if view.get("index") == 1 else f'No.{view.get("index")}'
         test_badge = '<span class="test-badge">测试数据</span>' if view.get("is_test") else ""
         cards.append(
@@ -2273,6 +2356,8 @@ def render_station_cards(views: List[Dict[str, Any]]) -> str:
             '<div class="station-meta">'
             f'<span><b>官网</b>{website_html}</span>'
             f'<span><b>邀请链接</b>{invite_html}</span>'
+            f'<span><b>是否已检测</b>{html_escape(checked_status)}</span>'
+            f'<span><b>检测时间</b>{html_escape(view.get("checked_at"))}</span>'
             f'<span><b>充值比</b>{html_escape(view.get("recharge_ratio"))}</span>'
             f'<span><b>最后更新</b>{html_escape(view.get("updated_at"))}</span>'
             '</div>'

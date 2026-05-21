@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple
 from site_price_registry import build_station_snapshot, load_registry, upsert_record, write_dashboard_files
 
 
-SECTION_KEYWORDS = {"站点名称", "官网", "邀请链接", "倍率", "备注", "充值比", "分组备注"}
+SECTION_KEYWORDS = {"站点名称", "官网", "邀请链接", "是否已检测", "检测时间", "倍率", "备注", "充值比", "分组备注"}
 
 
 def normalize_text(value: Any) -> str:
@@ -50,6 +50,8 @@ def parse_station_info(text: str) -> Dict[str, Any]:
         "name": r"站点名称[:：]\s*(.+)",
         "website": r"官网[:：]\s*(.+)",
         "invite_url": r"邀请链接[:：]\s*(.+)",
+        "is_checked": r"是否已检测[:：]\s*(.+)",
+        "checked_at": r"检测时间[:：]\s*(.+)",
         "notes": r"备注[:：]\s*(.+)",
     }
     for key, pattern in patterns.items():
@@ -57,6 +59,8 @@ def parse_station_info(text: str) -> Dict[str, Any]:
         if match:
             station[key] = match.group(1).strip()
 
+    if normalize_text(station.get("is_checked")) in {"1", "true", "yes", "y", "已检测", "是"}:
+        station["is_checked"] = True
     if station.get("name"):
         station["alias"] = station["name"]
     return station

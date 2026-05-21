@@ -6,7 +6,8 @@
       "name": "小鸡农场",
       "aliases": [
         "小鸡农场",
-        "https://api.68886868.xyz"
+        "https://api.68886868.xyz",
+        "api-68886868-xyz"
       ],
       "website": "https://api.68886868.xyz",
       "api_base_url": "https://api.68886868.xyz",
@@ -16,7 +17,8 @@
       },
       "notes": "",
       "created_at": "2026-05-18T15:37:59+00:00",
-      "updated_at": "2026-05-18T15:52:59+00:00"
+      "updated_at": "2026-05-21T04:59:07+00:00",
+      "invite_url": "https://api.68886868.xyz/register?aff=1mML"
     },
     {
       "station_id": "toioto-ai",
