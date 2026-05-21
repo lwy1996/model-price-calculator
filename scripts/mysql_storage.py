@@ -181,6 +181,7 @@ def load_registry() -> Dict[str, Any]:
                 "name": row.get("name") or "",
                 "aliases": [],
                 "website": row.get("website") or "",
+                "invite_url": row.get("invite_url") or "",
                 "recharge_ratio": row.get("recharge_ratio") or "1:1",
                 "notes": row.get("notes") or "",
                 "created_at": dt_to_iso(row.get("created_at")),
@@ -266,11 +267,12 @@ def save_registry(registry: Dict[str, Any]) -> None:
             cursor.execute(
                 """
                 INSERT INTO mpc_stations
-                    (station_id, name, website, recharge_ratio, notes, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (station_id, name, website, invite_url, recharge_ratio, notes, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     website = VALUES(website),
+                    invite_url = VALUES(invite_url),
                     recharge_ratio = VALUES(recharge_ratio),
                     notes = VALUES(notes),
                     updated_at = VALUES(updated_at),
@@ -281,6 +283,7 @@ def save_registry(registry: Dict[str, Any]) -> None:
                     station_id,
                     station.get("name") or "",
                     station.get("website") or "",
+                    station.get("invite_url") or "",
                     station.get("recharge_ratio") or "1:1",
                     station.get("notes"),
                     created_at,

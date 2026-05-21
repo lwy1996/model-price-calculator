@@ -47,7 +47,7 @@ WHERE `id` = ?
 
 ## 表职责
 
-- `mpc_stations`：站点主信息。
+- `mpc_stations`：站点主信息，当前包含 `station_id`、`name`、`website`、`invite_url`、`recharge_ratio`、`notes` 等站点级字段。
 - `mpc_station_aliases`：站点别名，用于搜索和去重。
 - `mpc_station_group_multipliers`：站点分组默认倍率。
 - `mpc_price_records`：模型价格记录和排行冗余字段。
@@ -138,6 +138,7 @@ runtime/mysql-seed-current-data.sql
 这个脚本只读取现有 JSON，并生成可审查的 SQL 文件，不会连接或修改 MySQL。导入 SQL 会迁移：
 
 - `assets/site-price-registry.json` 中的站点、别名、分组倍率和价格记录
+  - 其中站点主信息会同步导出 `invite_url`，用于保存站点邀请链接
 - `assets/site-price-history.json` 中的价格变更历史
 - `assets/site-price-drafts.json` 中的草稿
 - `assets/model-catalog.json` 中的模型目录和模型别名

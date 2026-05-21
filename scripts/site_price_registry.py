@@ -524,6 +524,7 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
             ),
             "aliases": unique_strings(build_station_identifiers(station_payload, include_api=False)),
             "website": normalize_text(station_payload.get("website")),
+            "invite_url": normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接")),
             "recharge_ratio": normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1",
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
@@ -539,6 +540,9 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
 
     station["name"] = normalize_text(station_payload.get("name") or station.get("name"))
     station["website"] = normalize_text(station_payload.get("website") or station.get("website"))
+    station["invite_url"] = normalize_text(
+        station_payload.get("invite_url") or station_payload.get("邀请链接") or station.get("invite_url")
+    )
     station["recharge_ratio"] = (
         normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
         or normalize_text(station.get("recharge_ratio"))
@@ -588,6 +592,12 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         if value and value != station.get("website"):
             station["website"] = value
             changed_fields.append("website")
+
+    if "invite_url" in station_payload or "邀请链接" in station_payload:
+        value = normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接"))
+        if value != normalize_text(station.get("invite_url")):
+            station["invite_url"] = value
+            changed_fields.append("invite_url")
 
     if "recharge_ratio" in station_payload or "充值比" in station_payload:
         value = normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1"
@@ -1185,6 +1195,7 @@ def station_search_fields(station: Dict[str, Any], records: List[Dict[str, Any]]
         ("站点ID", normalize_text(station.get("station_id")), 5),
         ("站点名称", normalize_text(station.get("name")), 8),
         ("官网", normalize_text(station.get("website")), 6),
+        ("邀请链接", normalize_text(station.get("invite_url")), 5),
         ("API", normalize_text(station.get("api_base_url") or station.get("api_url")), 5),
         ("充值比", normalize_text(station.get("recharge_ratio")), 2),
         ("备注", normalize_text(station.get("notes")), 4),
@@ -1286,6 +1297,7 @@ def build_compact_search_markdown(registry: Dict[str, Any], search_result: Dict[
         reasons = "；".join(item.get("reasons") or []) or "关键词命中"
         lines.append(f"{index}. {station.get('name') or item.get('station_id')}")
         lines.append(f"官网：{normalize_text(station.get('website')) or '未记录'}")
+        lines.append(f"邀请链接：{normalize_text(station.get('invite_url')) or '未记录'}")
         lines.append(f"充值比：{resolve_station_summary_recharge_ratio(station, summary)}")
         lines.append(f"匹配：{reasons}")
         lines.append(f"最优摘要：{best_record_text}")
@@ -1855,12 +1867,14 @@ def append_station_markdown_block(
     index: int,
 ) -> None:
     website = normalize_text(station.get("website")) or "未记录"
+    invite_url = normalize_text(station.get("invite_url")) or "未记录"
     recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
     notes = normalize_text(station.get("notes")) or "无"
     marker = "（测试）" if is_test_station(station) else ""
 
     lines.append(f"{index}. {station.get('name') or station.get('station_id')}{marker}")
     lines.append(f"官网：{website}")
+    lines.append(f"邀请链接：{invite_url}")
     lines.append(f"充值比：{recharge_ratio}")
     lines.append(f"备注：{notes}")
     if is_test_station(station):
@@ -2079,6 +2093,7 @@ def station_html_view(station: Dict[str, Any], summary: Dict[str, Any], index: i
         "name": normalize_text(station.get("name") or station.get("station_id")) or "未命名站点",
         "station_id": normalize_text(station.get("station_id")),
         "website": normalize_text(station.get("website")) or "未记录",
+        "invite_url": normalize_text(station.get("invite_url")) or "未记录",
         "recharge_ratio": resolve_station_summary_recharge_ratio(station, summary),
         "notes": normalize_text(station.get("notes")) or "无",
         "is_test": is_test_station(station),
@@ -2239,6 +2254,11 @@ def render_station_cards(views: List[Dict[str, Any]]) -> str:
         website_html = html_escape(website)
         if href:
             website_html = f'<a href="{html_attr(href)}" target="_blank" rel="noopener noreferrer">{html_escape(website)}</a>'
+        invite_url = view.get("invite_url") or "未记录"
+        invite_href = safe_website_href(invite_url)
+        invite_html = html_escape(invite_url)
+        if invite_href:
+            invite_html = f'<a href="{html_attr(invite_href)}" target="_blank" rel="noopener noreferrer">{html_escape(invite_url)}</a>'
         rank_label = "Prime" if view.get("index") == 1 else f'No.{view.get("index")}'
         test_badge = '<span class="test-badge">测试数据</span>' if view.get("is_test") else ""
         cards.append(
@@ -2252,6 +2272,7 @@ def render_station_cards(views: List[Dict[str, Any]]) -> str:
             '</header>'
             '<div class="station-meta">'
             f'<span><b>官网</b>{website_html}</span>'
+            f'<span><b>邀请链接</b>{invite_html}</span>'
             f'<span><b>充值比</b>{html_escape(view.get("recharge_ratio"))}</span>'
             f'<span><b>最后更新</b>{html_escape(view.get("updated_at"))}</span>'
             '</div>'
@@ -2593,6 +2614,7 @@ def dashboard_record_item(
         "station_id": normalize_text(record.get("station_id")),
         "station_name": normalize_text(station.get("name") or record.get("station_id")),
         "website": normalize_text(station.get("website")),
+        "invite_url": normalize_text(station.get("invite_url")),
         "notes": normalize_text(station.get("notes")),
         "recharge_ratio": resolve_station_recharge_ratio(station, record),
         "model_name": normalize_text(record.get("model_name")),
@@ -3010,7 +3032,7 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
         if (state.model && record.model_name !== state.model) return false;
         if (state.group && record.group !== state.group) return false;
         if (!query) return true;
-        return [record.station_name, record.website, record.notes, record.model_name, record.group, record.group_note]
+        return [record.station_name, record.website, record.invite_url, record.notes, record.model_name, record.group, record.group_note]
           .some((value) => String(value || '').toLowerCase().includes(query));
       }});
       records = representativeRecords(records);
@@ -3034,6 +3056,7 @@ def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
           </header>
           <div class="detail-list">
             <div class="detail-row"><b>官网</b><strong>${{safeLink(record.website)}}</strong></div>
+            <div class="detail-row"><b>邀请链接</b><strong>${{safeLink(record.invite_url)}}</strong></div>
             <div class="detail-row"><b>站点备注</b><strong>${{escapeHtml(record.notes || '无备注')}}</strong></div>
             <div class="detail-row"><b>模型/分组</b><strong>${{escapeHtml(record.model_name)}} / ${{escapeHtml(record.group)}}</strong></div>
             <div class="detail-row"><b>分组备注</b><strong>${{escapeHtml(record.group_note || '-')}}</strong></div>

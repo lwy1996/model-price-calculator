@@ -128,6 +128,7 @@ def build_station_sql(registry: Dict[str, Any]) -> List[str]:
             "station_id",
             "name",
             "website",
+            "invite_url",
             "recharge_ratio",
             "notes",
             "created_at",
@@ -137,12 +138,13 @@ def build_station_sql(registry: Dict[str, Any]) -> List[str]:
             sql_string(station.get("station_id") or ""),
             sql_string(station.get("name") or ""),
             sql_string(station.get("website") or ""),
+            sql_string(station.get("invite_url") or ""),
             sql_string(station.get("recharge_ratio") or "1:1"),
             sql_text(station.get("notes")),
             sql_string(created_at),
             sql_string(updated_at),
         ]
-        lines.append(emit_insert("mpc_stations", columns, values, ["name", "website", "recharge_ratio", "notes", "updated_at"]))
+        lines.append(emit_insert("mpc_stations", columns, values, ["name", "website", "invite_url", "recharge_ratio", "notes", "updated_at"]))
 
         aliases = compact_unique([station.get("name"), station.get("website")] + list(station.get("aliases") or []))
         for alias in aliases:
