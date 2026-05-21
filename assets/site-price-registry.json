@@ -56,9 +56,10 @@
       ],
       "website": "https://api.code-relay.com",
       "api_base_url": "https://api.code-relay.com",
+      "recharge_ratio": "14.99:10",
       "notes": "注册送10-邀请送50，已添加QQ群,拉人太多 导致速度慢 余额1700+",
       "created_at": "2026-05-18T14:59:18+00:00",
-      "updated_at": "2026-05-18T14:59:18+00:00"
+      "updated_at": "2026-05-21T09:13:58+00:00"
     },
     {
       "station_id": "xybbz",
@@ -980,7 +981,7 @@
       "cache_read_price": null,
       "cache_write_price": null,
       "multiplier": 1,
-      "recharge_ratio": "1:1",
+      "recharge_ratio": "14.99:10",
       "sale_price": null,
       "tags": [],
       "computed": {
@@ -988,37 +989,41 @@
         "group": "vip",
         "multiplier": "1.0000",
         "recharge_ratio": {
-          "display": "1:1",
-          "unit_rate": "1.0000"
+          "display": "14.99:10",
+          "unit_rate": "1.4990"
         },
-        "copy_text": "gpt-5.4-vip-输入$2.5000-输出$20.0000",
+        "copy_text": "gpt-5.4-vip-输入$2.5000-输出$20.0000-缓存读$0.2500",
         "dimensions": {
           "input": {
             "usd_per_m": "2.5000",
             "multiplied_usd_per_m": "2.5000",
-            "rmb_per_m": "2.5000"
+            "rmb_per_m": "3.7475"
           },
           "output": {
             "usd_per_m": "20.0000",
             "multiplied_usd_per_m": "20.0000",
-            "rmb_per_m": "20.0000"
+            "rmb_per_m": "29.9800"
           },
           "cache": null,
-          "cache_read": null,
+          "cache_read": {
+            "usd_per_m": "0.2500",
+            "multiplied_usd_per_m": "0.2500",
+            "rmb_per_m": "0.3748"
+          },
           "cache_write": null
         },
         "summary": {
-          "base_usd_per_m": "22.5000",
-          "multiplied_usd_per_m": "22.5000",
-          "rmb_per_m": "22.5000"
+          "base_usd_per_m": "22.7500",
+          "multiplied_usd_per_m": "22.7500",
+          "rmb_per_m": "34.1023"
         },
         "comparisons": {
           "output_input_ratio": "8.0000",
-          "cache_read_discount_vs_input": null,
+          "cache_read_discount_vs_input": "0.1000",
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-18T14:59:18+00:00",
+      "updated_at": "2026-05-21T09:13:58+00:00",
       "created_at": "2026-05-18T14:59:18+00:00"
     },
     {
@@ -1034,7 +1039,7 @@
       "cache_read_price": null,
       "cache_write_price": null,
       "multiplier": 1,
-      "recharge_ratio": "1:1",
+      "recharge_ratio": "14.99:10",
       "sale_price": null,
       "tags": [],
       "computed": {
@@ -1042,37 +1047,41 @@
         "group": "vip",
         "multiplier": "1.0000",
         "recharge_ratio": {
-          "display": "1:1",
-          "unit_rate": "1.0000"
+          "display": "14.99:10",
+          "unit_rate": "1.4990"
         },
-        "copy_text": "gpt-5.5-vip-输入$5.0000-输出$40.0000",
+        "copy_text": "gpt-5.5-vip-输入$5.0000-输出$40.0000-缓存读$0.5000",
         "dimensions": {
           "input": {
             "usd_per_m": "5.0000",
             "multiplied_usd_per_m": "5.0000",
-            "rmb_per_m": "5.0000"
+            "rmb_per_m": "7.4950"
           },
           "output": {
             "usd_per_m": "40.0000",
             "multiplied_usd_per_m": "40.0000",
-            "rmb_per_m": "40.0000"
+            "rmb_per_m": "59.9600"
           },
           "cache": null,
-          "cache_read": null,
+          "cache_read": {
+            "usd_per_m": "0.5000",
+            "multiplied_usd_per_m": "0.5000",
+            "rmb_per_m": "0.7495"
+          },
           "cache_write": null
         },
         "summary": {
-          "base_usd_per_m": "45.0000",
-          "multiplied_usd_per_m": "45.0000",
-          "rmb_per_m": "45.0000"
+          "base_usd_per_m": "45.5000",
+          "multiplied_usd_per_m": "45.5000",
+          "rmb_per_m": "68.2045"
         },
         "comparisons": {
           "output_input_ratio": "8.0000",
-          "cache_read_discount_vs_input": null,
+          "cache_read_discount_vs_input": "0.1000",
           "cache_write_ratio_vs_input": null
         }
       },
-      "updated_at": "2026-05-18T14:59:18+00:00",
+      "updated_at": "2026-05-21T09:13:58+00:00",
       "created_at": "2026-05-18T14:59:18+00:00"
     },
     {

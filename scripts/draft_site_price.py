@@ -4,16 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from extract_model_price import extract_payload
 from ingest_site_price import build_upsert_payload
 from site_price_registry import load_registry, upsert_record
-from mysql_storage import mysql_enabled, load_drafts as load_mysql_drafts, save_drafts as save_mysql_drafts
-
-
-DRAFTS_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-drafts.json"
+from mysql_storage import load_drafts as load_mysql_drafts, save_drafts as save_mysql_drafts
 
 
 def now_iso() -> str:
@@ -29,20 +25,11 @@ def load_json_file(path: str) -> Dict[str, Any]:
 
 
 def load_drafts() -> Dict[str, Any]:
-    if mysql_enabled():
-        return load_mysql_drafts()
-    if not DRAFTS_PATH.exists():
-        return {"version": 1, "drafts": []}
-    return load_json_file(str(DRAFTS_PATH))
+    return load_mysql_drafts()
 
 
 def save_drafts(data: Dict[str, Any]) -> None:
-    if mysql_enabled():
-        save_mysql_drafts(data)
-        return
-    DRAFTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DRAFTS_PATH, "w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
+    save_mysql_drafts(data)
 
 
 def normalize_text(value: Any) -> str:
@@ -246,7 +233,7 @@ def commit_draft(data: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any
         "draft_id": draft_id,
         "committed": True,
         "upsert": upsert_result,
-        "station_snapshot": upsert_result.get("station_snapshot"),
+        "summary": upsert_result.get("summary"),
     }
 
 

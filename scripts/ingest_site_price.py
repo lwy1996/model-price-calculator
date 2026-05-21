@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from extract_model_price import extract_payload
-from site_price_registry import load_json_file, load_registry, rank_records, upsert_record
+from site_price_registry import load_json_file, load_registry, upsert_record
 
 
 def read_text(path: str) -> str:
@@ -104,21 +104,9 @@ def main() -> None:
     registry = load_registry()
     upsert_result = upsert_record(registry, upsert_payload)
 
-    rank_payload = {
-        "model_name": upsert_result["record"]["model_name"],
-        "group": upsert_result["record"]["group"],
-        "sort_by": "summary_rmb_per_m",
-        "direction": "asc",
-    }
-    rank_result = rank_records(load_registry(), rank_payload)
-
     print(
         json.dumps(
-            {
-                "upsert": upsert_result,
-                "rank": rank_result,
-                "station_snapshot": upsert_result.get("station_snapshot"),
-            },
+            upsert_result,
             ensure_ascii=False,
             indent=2,
         )

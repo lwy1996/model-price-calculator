@@ -4,25 +4,16 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
-import html
 import json
 import re
-import tempfile
 from copy import deepcopy
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
 from model_catalog import canonical_model_name
-from mysql_storage import mysql_enabled, load_history as load_mysql_history, load_registry as load_mysql_registry
+from mysql_storage import load_history as load_mysql_history, load_registry as load_mysql_registry
 from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
-
-
-REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
-HISTORY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-history.json"
-DASHBOARD_HTML_PATH = Path(__file__).resolve().parent.parent / "runtime" / "site-price-dashboard.html"
-DASHBOARD_META_PATH = Path(__file__).resolve().parent.parent / "runtime" / "site-price-dashboard.meta.json"
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -84,37 +75,19 @@ def load_json_file(path: str) -> Dict[str, Any]:
 
 
 def load_registry() -> Dict[str, Any]:
-    if mysql_enabled():
-        return load_mysql_registry()
-    if not REGISTRY_PATH.exists():
-        return {"version": 1, "stations": [], "price_records": []}
-    return load_json_file(str(REGISTRY_PATH))
+    return load_mysql_registry()
 
 
 def save_registry(registry: Dict[str, Any]) -> None:
-    if mysql_enabled():
-        save_mysql_registry(registry)
-        return
-    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(REGISTRY_PATH, "w", encoding="utf-8") as file:
-        json.dump(registry, file, ensure_ascii=False, indent=2)
+    save_mysql_registry(registry)
 
 
 def load_history() -> Dict[str, Any]:
-    if mysql_enabled():
-        return load_mysql_history()
-    if not HISTORY_PATH.exists():
-        return {"version": 1, "changes": []}
-    return load_json_file(str(HISTORY_PATH))
+    return load_mysql_history()
 
 
 def save_history(history: Dict[str, Any]) -> None:
-    if mysql_enabled():
-        save_mysql_history(history)
-        return
-    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(HISTORY_PATH, "w", encoding="utf-8") as file:
-        json.dump(history, file, ensure_ascii=False, indent=2)
+    save_mysql_history(history)
 
 
 def normalize_text(value: Any) -> str:
@@ -724,12 +697,12 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
     if "recharge_ratio" in changed_fields:
         recompute_station_records(registry, station, timestamp)
     save_registry(registry)
-    return refresh_dashboard_after_write(registry, {
-        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
-        "station": station,
+    return {
+        "action": "update-station",
         "changed_fields": unique_strings(changed_fields),
-        "station_snapshot": build_station_snapshot(registry, station),
-    })
+        "summary": build_write_summary(station),
+        "station": station,
+    }
 
 
 def normalized_group(value: Any) -> str:
@@ -864,6 +837,25 @@ def append_price_history(
         }
     )
     save_history(history)
+
+
+def build_write_summary(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    summary = {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "website": station.get("website"),
+        "recharge_ratio": station.get("recharge_ratio"),
+        "updated_at": station.get("updated_at"),
+    }
+    if record is not None:
+        summary["record"] = {
+            "record_id": record.get("record_id"),
+            "model_name": record.get("model_name"),
+            "group": record.get("group"),
+            "multiplier": record.get("multiplier"),
+            "summary_rmb_per_m": (((record.get("computed") or {}).get("summary") or {}).get("rmb_per_m")),
+        }
+    return summary
 
 
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
@@ -1436,12 +1428,6 @@ def search_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str
     }
 
 
-def build_station_snapshot(registry: Dict[str, Any], station: Dict[str, Any]) -> Dict[str, Any]:
-    station_id = normalize_text(station.get("station_id"))
-    keyword = station_id or normalize_text(station.get("name") or station.get("website"))
-    return build_station_markdown(registry, {"keyword": keyword})
-
-
 def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or {})
     pricing_payload = deepcopy(payload.get("pricing") or {})
@@ -1557,13 +1543,13 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
 
     station["updated_at"] = timestamp
     save_registry(registry)
-    return refresh_dashboard_after_write(registry, {
-        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
+    return {
         "action": action,
+        "changed_fields": ["station", "record"],
+        "summary": build_write_summary(station, record),
         "station": station,
         "record": record,
-        "station_snapshot": build_station_snapshot(registry, station),
-    })
+    }
 
 
 def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1688,13 +1674,13 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         recompute_station_records(registry, station, record["updated_at"])
     save_registry(registry)
 
-    return refresh_dashboard_after_write(registry, {
-        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
+    return {
+        "action": "patch-record",
+        "changed_fields": unique_strings(changed_fields),
+        "summary": build_write_summary(station, record),
         "station": station,
         "record": record,
-        "changed_fields": unique_strings(changed_fields),
-        "station_snapshot": build_station_snapshot(registry, station),
-    })
+    }
 
 
 def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1724,9 +1710,10 @@ def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[st
 
     if not removed_records:
         return {
+            "action": "delete-records",
             "removed_count": 0,
             "removed_records": [],
-            "station_snapshot": build_station_snapshot(registry, station),
+            "summary": build_write_summary(station),
         }
 
     registry["price_records"] = kept_records
@@ -1736,10 +1723,11 @@ def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[st
         append_price_history(record, {}, "delete-record", ["deleted"])
     save_registry(registry)
 
-    return refresh_dashboard_after_write(registry, {
-        "_skip_dashboard_refresh": normalize_bool(payload.get("_skip_dashboard_refresh")),
-        "station": station,
+    return {
+        "action": "delete-records",
         "removed_count": len(removed_records),
+        "summary": build_write_summary(station),
+        "station": station,
         "removed_records": [
             {
                 "record_id": record.get("record_id"),
@@ -1748,8 +1736,7 @@ def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[st
             }
             for record in removed_records
         ],
-        "station_snapshot": build_station_snapshot(registry, station),
-    })
+    }
 
 
 def list_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
@@ -3241,14 +3228,6 @@ def dashboard_html_status(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
 
 
 def refresh_dashboard_after_write(registry: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
-    if result.pop("_skip_dashboard_refresh", False):
-        return result
-    if result.get("needs_confirmation"):
-        return result
-    try:
-        result["dashboard"] = write_dashboard_files(registry, {})
-    except Exception as error:
-        result["dashboard_error"] = str(error)
     return result
 
 
@@ -3368,23 +3347,10 @@ def main() -> None:
     parser.add_argument(
         "command",
         choices=[
-            "search",
-            "quick",
             "upsert",
-            "rank",
-            "rank-stations-md",
-            "rank-stations-html",
-            "dashboard-html",
-            "refresh-dashboard-html",
-            "list",
-            "leaderboard",
             "update-station",
             "patch-record",
             "delete-records",
-            "history",
-            "stations-md",
-            "stations-html",
-            "cleanup-test",
         ],
         help="Registry action",
     )
@@ -3394,40 +3360,14 @@ def main() -> None:
     payload = load_json_file(args.json_file)
     registry = load_registry()
 
-    if args.command == "search":
-        result = search_registry(registry, payload)
-    elif args.command == "quick":
-        result = quick_query(registry, payload)
-    elif args.command == "upsert":
+    if args.command == "upsert":
         result = upsert_record(registry, payload)
-    elif args.command == "rank":
-        result = rank_records(registry, payload)
-    elif args.command == "rank-stations-md":
-        result = build_rank_station_markdown(registry, payload)
-    elif args.command == "rank-stations-html":
-        result = build_rank_station_html(registry, payload)
-    elif args.command == "dashboard-html":
-        result = dashboard_html_status(registry, payload)
-    elif args.command == "refresh-dashboard-html":
-        result = write_dashboard_files(registry, payload)
-    elif args.command == "leaderboard":
-        result = build_leaderboard_copy(rank_records(registry, payload))
     elif args.command == "update-station":
         result = update_station_fields(registry, payload)
     elif args.command == "patch-record":
         result = patch_record_fields(registry, payload)
-    elif args.command == "delete-records":
-        result = delete_records(registry, payload)
-    elif args.command == "history":
-        result = query_price_history(registry, payload)
-    elif args.command == "stations-md":
-        result = build_station_markdown(registry, payload)
-    elif args.command == "stations-html":
-        result = build_station_html(registry, payload)
-    elif args.command == "cleanup-test":
-        result = cleanup_test_stations(registry)
     else:
-        result = list_registry(registry, payload)
+        result = delete_records(registry, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

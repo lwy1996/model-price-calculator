@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:
     import mysql.connector
-except ModuleNotFoundError:  # JSON 存储模式下允许未安装 mysql 依赖
+except ModuleNotFoundError:
     mysql = None
 
 
@@ -39,10 +39,7 @@ def env_or_config(env_key: str, config: Dict[str, Any], config_key: str, default
 
 
 def mysql_enabled() -> bool:
-    backend = os.environ.get("MPC_STORAGE_BACKEND")
-    if backend in (None, ""):
-        backend = load_storage_config().get("backend", "json")
-    return str(backend).strip().lower() == "mysql"
+    return True
 
 
 def connect():
