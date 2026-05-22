@@ -36,6 +36,16 @@ PRICE_HISTORY_FIELDS = [
     "sale_price",
     "computed",
 ]
+LAST_CHECK_LATENCY_FIELD_KEYS = (
+    "last_check_latency_seconds",
+    "最后一次检测延迟",
+    "最后一次检测延迟(秒)",
+    "最后一次检测延迟（秒）",
+    "检测延迟",
+    "检测延迟(秒)",
+    "检测延迟（秒）",
+)
+ADMIN_NOTES_FIELD_KEYS = ("admin_notes", "管理员备注")
 
 
 def now_iso() -> str:
@@ -102,6 +112,23 @@ def normalize_bool(value: Any) -> bool:
         return value
     text = normalize_text(value).lower()
     return text in {"1", "true", "yes", "y", "是", "测试", "test"}
+
+
+def first_present_value(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload.get(key)
+    return None
+
+
+def normalize_optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    text = normalize_text(value)
+    match = re.search(r"-?\d+", text.replace(",", ""))
+    if not match:
+        raise ValueError(f"无法解析整数: {value}")
+    return int(match.group(0))
 
 
 def parse_iso_datetime(value: Any) -> Optional[datetime]:
@@ -519,6 +546,8 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
         or station_payload.get("检测状态")
     )
     auto_checked = station_payload_mentions_checked(station_payload)
+    last_check_latency_seconds = normalize_optional_int(first_present_value(station_payload, LAST_CHECK_LATENCY_FIELD_KEYS))
+    admin_notes = normalize_text(first_present_value(station_payload, ADMIN_NOTES_FIELD_KEYS))
     checked_at_value = normalize_text(station_payload.get("checked_at") or station_payload.get("检测时间"))
     if station is None or score == 0:
         station = {
@@ -544,6 +573,8 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
             "created_at": timestamp,
             "updated_at": timestamp,
         }
+        station["last_check_latency_seconds"] = last_check_latency_seconds
+        station["admin_notes"] = admin_notes
         registry.setdefault("stations", []).append(station)
         return station
 
@@ -575,6 +606,10 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
         station["group_multipliers"] = merged_group_multipliers
     if "is_test_data" in station_payload:
         station["is_test_data"] = normalize_bool(station_payload.get("is_test_data"))
+    if any(key in station_payload for key in LAST_CHECK_LATENCY_FIELD_KEYS):
+        station["last_check_latency_seconds"] = last_check_latency_seconds
+    if any(key in station_payload for key in ADMIN_NOTES_FIELD_KEYS):
+        station["admin_notes"] = admin_notes
     station["notes"] = normalize_text(station_payload.get("notes") or station.get("notes"))
     if "last_verified_at" in station_payload or "最后验证时间" in station_payload:
         station["last_verified_at"] = normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间"))
@@ -664,6 +699,18 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         if value != normalize_bool(station.get("is_test_data")):
             station["is_test_data"] = value
             changed_fields.append("is_test_data")
+
+    if any(key in station_payload for key in LAST_CHECK_LATENCY_FIELD_KEYS):
+        value = normalize_optional_int(first_present_value(station_payload, LAST_CHECK_LATENCY_FIELD_KEYS))
+        if value != station.get("last_check_latency_seconds"):
+            station["last_check_latency_seconds"] = value
+            changed_fields.append("last_check_latency_seconds")
+
+    if any(key in station_payload for key in ADMIN_NOTES_FIELD_KEYS):
+        value = normalize_text(first_present_value(station_payload, ADMIN_NOTES_FIELD_KEYS))
+        if value != normalize_text(station.get("admin_notes")):
+            station["admin_notes"] = value
+            changed_fields.append("admin_notes")
 
     if "notes" in station_payload:
         value = normalize_text(station_payload.get("notes"))
@@ -845,7 +892,13 @@ def build_write_summary(station: Dict[str, Any], record: Optional[Dict[str, Any]
         "station_id": station.get("station_id"),
         "station_name": station.get("name"),
         "website": station.get("website"),
+        "invite_url": station.get("invite_url"),
+        "is_checked": station.get("is_checked"),
+        "checked_at": station.get("checked_at"),
+        "last_check_latency_seconds": station.get("last_check_latency_seconds"),
         "recharge_ratio": station.get("recharge_ratio"),
+        "admin_notes": station.get("admin_notes"),
+        "notes": station.get("notes"),
         "updated_at": station.get("updated_at"),
     }
     if record is not None:

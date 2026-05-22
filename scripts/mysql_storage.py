@@ -188,7 +188,9 @@ def load_registry() -> Dict[str, Any]:
                 "invite_url": row.get("invite_url") or "",
                 "is_checked": bool(row.get("is_checked")),
                 "checked_at": dt_to_iso(row.get("checked_at")),
+                "last_check_latency_seconds": row.get("last_check_latency_seconds"),
                 "recharge_ratio": row.get("recharge_ratio") or "1:1",
+                "admin_notes": row.get("admin_notes") or "",
                 "notes": row.get("notes") or "",
                 "created_at": dt_to_iso(row.get("created_at")),
                 "updated_at": dt_to_iso(row.get("updated_at")),
@@ -273,15 +275,18 @@ def save_registry(registry: Dict[str, Any]) -> None:
             cursor.execute(
                 """
                 INSERT INTO mpc_stations
-                    (station_id, name, website, invite_url, is_checked, checked_at, recharge_ratio, notes, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (station_id, name, website, invite_url, is_checked, checked_at, last_check_latency_seconds,
+                     recharge_ratio, admin_notes, notes, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     website = VALUES(website),
                     invite_url = VALUES(invite_url),
                     is_checked = VALUES(is_checked),
                     checked_at = VALUES(checked_at),
+                    last_check_latency_seconds = VALUES(last_check_latency_seconds),
                     recharge_ratio = VALUES(recharge_ratio),
+                    admin_notes = VALUES(admin_notes),
                     notes = VALUES(notes),
                     updated_at = VALUES(updated_at),
                     deleted_at = NULL,
@@ -294,7 +299,9 @@ def save_registry(registry: Dict[str, Any]) -> None:
                     station.get("invite_url") or "",
                     1 if station.get("is_checked") else 0,
                     iso_to_mysql(station.get("checked_at")),
+                    station.get("last_check_latency_seconds"),
                     station.get("recharge_ratio") or "1:1",
+                    station.get("admin_notes"),
                     station.get("notes"),
                     created_at,
                     updated_at,
