@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_CONFIG_PATH = ROOT / "config" / "storage.local.json"
 EXAMPLE_CONFIG_PATH = ROOT / "config" / "storage.example.json"
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def load_storage_config() -> Dict[str, Any]:
@@ -92,8 +93,8 @@ def dt_to_iso(value: Any) -> str:
         except ValueError:
             return str(value)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+        parsed = parsed.replace(tzinfo=BEIJING_TZ)
+    return parsed.astimezone(BEIJING_TZ).replace(microsecond=0).isoformat()
 
 
 def iso_to_mysql(value: Any, fallback: Optional[str] = None) -> Optional[str]:
@@ -104,13 +105,14 @@ def iso_to_mysql(value: Any, fallback: Optional[str] = None) -> Optional[str]:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return fallback
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=BEIJING_TZ)
+    parsed = parsed.astimezone(BEIJING_TZ).replace(tzinfo=None)
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def now_mysql() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(BEIJING_TZ).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def json_loads(value: Any, default: Any) -> Any:

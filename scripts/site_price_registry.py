@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
@@ -17,6 +17,7 @@ from mysql_storage import save_history as save_mysql_history, save_registry as s
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
+BEIJING_TZ = timezone(timedelta(hours=8))
 CONFIDENCE_SOURCE_RULES = [
     (("official", "官网", "官方", "控制台", "价格页"), 0.95, "官网/官方价格页"),
     (("screenshot", "截图", "图片", "price-card", "价格卡片"), 0.85, "截图/价格卡片"),
@@ -38,7 +39,7 @@ PRICE_HISTORY_FIELDS = [
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(BEIJING_TZ).replace(microsecond=0).isoformat()
 
 
 def normalize_detection_flag(value: Any) -> Optional[bool]:
@@ -112,7 +113,7 @@ def parse_iso_datetime(value: Any) -> Optional[datetime]:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=BEIJING_TZ)
     return parsed
 
 
@@ -120,7 +121,7 @@ def days_since(value: Any, now: Optional[datetime] = None) -> Optional[int]:
     parsed = parse_iso_datetime(value)
     if parsed is None:
         return None
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(BEIJING_TZ)
     return max((current - parsed).days, 0)
 
 
@@ -310,7 +311,7 @@ def record_verified_at(station: Dict[str, Any], record: Dict[str, Any]) -> str:
 
 def price_stale_warnings(station: Dict[str, Any], record: Dict[str, Any]) -> List[str]:
     warnings = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(BEIJING_TZ)
     expires_at = parse_iso_datetime(record.get("expires_at") or station.get("expires_at"))
     if expires_at is not None and expires_at < now:
         warnings.append(f"价格已过期（{iso_to_display(expires_at.isoformat())}）")
@@ -505,7 +506,7 @@ def derive_station_id(station_payload: Dict[str, Any]) -> str:
         if raw:
             digest = hashlib.md5(raw.encode("utf-8")).hexdigest()[:10]
             return f"station-{digest}"
-    return f"station-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    return f"station-{datetime.now(BEIJING_TZ).strftime('%Y%m%d%H%M%S')}"
 
 
 def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> Dict[str, Any]:

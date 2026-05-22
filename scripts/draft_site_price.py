@@ -3,17 +3,19 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from extract_model_price import extract_payload
 from ingest_site_price import build_upsert_payload
+from model_catalog import model_defaults
 from site_price_registry import load_registry, upsert_record
 from mysql_storage import load_drafts as load_mysql_drafts, save_drafts as save_mysql_drafts
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(BEIJING_TZ).replace(microsecond=0).isoformat()
 
 
 def load_json_file(path: str) -> Dict[str, Any]:
@@ -120,17 +122,23 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
 def required_state(draft: Dict[str, Any]) -> Dict[str, Any]:
     station = draft.get("station") or {}
     pricing = draft.get("pricing") or {}
+    defaults = model_defaults(pricing.get("model_name"))
 
     has_station_identity = any(
         normalize_text(station.get(key))
         for key in ("alias", "name", "station_name", "website")
     )
     has_model = bool(normalize_text(pricing.get("model_name")))
-    has_input = bool(normalize_text(pricing.get("input_price")) or normalize_text(pricing.get("输入价格")))
+    has_input = bool(
+        normalize_text(pricing.get("input_price"))
+        or normalize_text(pricing.get("输入价格"))
+        or normalize_text(defaults.get("input_price"))
+    )
     has_output = bool(
         normalize_text(pricing.get("output_price"))
         or normalize_text(pricing.get("输出价格"))
         or normalize_text(pricing.get("补全价格"))
+        or normalize_text(defaults.get("output_price"))
     )
 
     missing = []
@@ -143,10 +151,10 @@ def required_state(draft: Dict[str, Any]) -> Dict[str, Any]:
         next_questions.append("这个站你要记录哪个模型？如果有分组也可以一起告诉我。")
     if not has_input:
         missing.append("input_price")
-        next_questions.append("还缺输入价格，你直接说数值也行，比如 2.4 或 $2.4 / 1M。")
+        next_questions.append("还缺输入价格，你直接说数值也行，比如 2.4 或 $2.4 / 1M；如果这个模型走官方默认价，也可以直接说明。")
     if not has_output:
         missing.append("output_price")
-        next_questions.append("还缺输出价格，你直接说数值也行，比如 14.5 或 $14.5 / 1M。")
+        next_questions.append("还缺输出价格，你直接说数值也行，比如 14.5 或 $14.5 / 1M；如果这个模型走官方默认价，也可以直接说明。")
 
     return {
         "is_ready": not missing,

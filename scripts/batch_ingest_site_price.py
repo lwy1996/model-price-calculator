@@ -44,23 +44,35 @@ def read_text(path: str) -> str:
         return file.read()
 
 
+def extract_labeled_value(text: str, labels: List[str]) -> str:
+    for label in labels:
+        pattern = re.compile(rf"{re.escape(label)}[:：]\s*(.+)", re.I)
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
 def parse_station_info(text: str) -> Dict[str, Any]:
     station: Dict[str, Any] = {}
-    patterns = {
-        "name": r"站点名称[:：]\s*(.+)",
-        "website": r"官网[:：]\s*(.+)",
-        "invite_url": r"邀请链接[:：]\s*(.+)",
-        "is_checked": r"是否已检测[:：]\s*(.+)",
-        "checked_at": r"检测时间[:：]\s*(.+)",
-        "notes": r"备注[:：]\s*(.+)",
+    field_aliases = {
+        "name": ["站点名称"],
+        "website": ["官网"],
+        "invite_url": ["邀请链接", "邀请地址"],
+        "is_checked": ["是否已检测", "是否检测", "已检测"],
+        "checked_at": ["检测时间", "检查时间"],
+        "notes": ["备注", "站点备注"],
     }
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.I)
-        if match:
-            station[key] = match.group(1).strip()
+    for key, labels in field_aliases.items():
+        value = extract_labeled_value(text, labels)
+        if value:
+            station[key] = value
 
-    if normalize_text(station.get("is_checked")) in {"1", "true", "yes", "y", "已检测", "是"}:
+    checked_flag = normalize_text(station.get("is_checked")).lower()
+    if checked_flag in {"1", "true", "yes", "y", "已检测", "是"}:
         station["is_checked"] = True
+    elif checked_flag in {"0", "false", "no", "n", "未检测", "否"}:
+        station["is_checked"] = False
     if station.get("name"):
         station["alias"] = station["name"]
     return station
@@ -73,12 +85,16 @@ def parse_group_note(text: str) -> str:
     return match.group(1).strip()
 
 
+def locate_group_config_line(text: str) -> str:
+    candidate = extract_labeled_value(text, ["分组/倍率/备注", "分组倍率备注", "倍率", "分组"])
+    return candidate
+
+
 def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
-    match = re.search(r"倍率[:：]\s*(.+)", text, re.I)
-    if not match:
+    line = locate_group_config_line(text)
+    if not line:
         return {}
 
-    line = match.group(1).strip()
     results: Dict[str, Dict[str, Any]] = {}
     pattern = re.compile(
         r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?",
@@ -124,15 +140,25 @@ def parse_group_notes(text: str) -> Dict[str, str]:
 
 
 def parse_recharge_ratio(text: str) -> str:
-    match = re.search(r"充值比(?:[:：]|为)\s*([0-9.]+\s*:\s*[0-9.]+)", text, re.I)
-    if not match:
+    raw_value = extract_labeled_value(text, ["充值比"])
+    if not raw_value:
         return "1:1"
-    return match.group(1).replace(" ", "")
+    match = re.search(r"([0-9.]+\s*:\s*[0-9.]+)", raw_value, re.I)
+    if match:
+        return match.group(1).replace(" ", "")
+    numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", raw_value)
+    if not numeric:
+        return "1:1"
+    value = numeric.group(1)
+    return f"1:{value}"
 
 
 def is_post_multiplier_pricing(text: str) -> bool:
     keywords = [
         "倍率后的价格",
+        "计算倍率后的",
+        "计算倍率后的价格",
+        "计算倍率后的价格信息",
         "以下都是倍率后的价格",
         "下面都是倍率后的价格",
         "以下价格都是倍率后的",
@@ -168,7 +194,7 @@ def parse_price_fields(text: str) -> Dict[str, str]:
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.I)
         if match:
-            fields[key] = match.group(1).replace(" ", "")
+            fields[key] = re.sub(r"\s+", "", match.group(1))
     return fields
 
 
