@@ -46,7 +46,7 @@ def read_text(path: str) -> str:
 
 def extract_labeled_value(text: str, labels: List[str]) -> str:
     for label in labels:
-        pattern = re.compile(rf"{re.escape(label)}[:：]\s*(.+)", re.I)
+        pattern = re.compile(rf"(?mi)^\s*{re.escape(label)}[:：]\s*(.+)$")
         match = pattern.search(text)
         if match:
             return match.group(1).strip()

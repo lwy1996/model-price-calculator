@@ -14,6 +14,7 @@ from calc_model_price import apply_official_model_defaults, compute, format_deci
 from model_catalog import canonical_model_name
 from mysql_storage import load_history as load_mysql_history, load_registry as load_mysql_registry
 from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
+from mysql_storage import upsert_probe_api_configs as save_mysql_probe_api_configs
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -101,6 +102,10 @@ def save_history(history: Dict[str, Any]) -> None:
     save_mysql_history(history)
 
 
+def save_probe_api_configs(configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return save_mysql_probe_api_configs(configs)
+
+
 def normalize_text(value: Any) -> str:
     if value is None:
         return ""
@@ -119,6 +124,19 @@ def first_present_value(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
         if key in payload:
             return payload.get(key)
     return None
+
+
+def normalize_optional_bool(value: Any, default: bool = True) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = normalize_text(value).lower()
+    if text in {"1", "true", "yes", "y", "on", "enable", "enabled", "启用"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disable", "disabled", "禁用"}:
+        return False
+    return default
 
 
 def normalize_optional_int(value: Any) -> Optional[int]:
@@ -184,6 +202,22 @@ def normalize_key(value: Any) -> str:
     text = re.sub(r"[^\w]+", "-", text, flags=re.UNICODE)
     text = text.replace("_", "-")
     return text.strip("-")
+
+
+def normalize_url_root(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return ""
+    return text.rstrip("/")
+
+
+def mask_api_key(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return ""
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:4]}***{text[-4:]}"
 
 
 def compact_search_key(value: Any) -> str:
@@ -912,6 +946,121 @@ def build_write_summary(station: Dict[str, Any], record: Optional[Dict[str, Any]
     return summary
 
 
+def preferred_probe_model(model_names: List[str]) -> str:
+    cleaned = [normalize_text(model_name) for model_name in model_names if normalize_text(model_name)]
+    for model_name in cleaned:
+        if model_name == "gpt-5.4":
+            return model_name
+    return cleaned[0] if cleaned else "gpt-5.4"
+
+
+def build_probe_config_id(station_id: str, name: str, api_base_url: str, model: str) -> str:
+    stable_key = "|".join(
+        [
+            normalize_text(station_id),
+            normalize_text(api_base_url) or normalize_text(name),
+            normalize_text(model),
+        ]
+    )
+    return "probe_" + hashlib.md5(stable_key.encode("utf-8")).hexdigest()
+
+
+def normalize_probe_api_entry(
+    station: Dict[str, Any],
+    raw_entry: Dict[str, Any],
+    default_model: str,
+) -> Dict[str, Any]:
+    name = normalize_text(raw_entry.get("name") or raw_entry.get("api_name") or raw_entry.get("名称")) or "默认API"
+    api_base_url = normalize_url_root(raw_entry.get("api_base_url") or raw_entry.get("api_url") or raw_entry.get("url"))
+    model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name")) or default_model
+    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, model)
+    return {
+        "config_id": config_id,
+        "station_id": station.get("station_id") or "",
+        "name": name,
+        "api_base_url": api_base_url,
+        "chat_completions_path": normalize_text(raw_entry.get("chat_completions_path")) or "/v1/chat/completions",
+        "responses_path": normalize_text(raw_entry.get("responses_path")) or "/v1/responses",
+        "responses_compact_path": normalize_text(raw_entry.get("responses_compact_path")) or "/v1/responses/compact",
+        "api_key": normalize_text(raw_entry.get("api_key") or raw_entry.get("key")),
+        "model": model,
+        "is_enabled": normalize_optional_bool(raw_entry.get("is_enabled"), True),
+        "last_success_endpoint_type": normalize_text(raw_entry.get("last_success_endpoint_type")),
+        "notes": normalize_text(raw_entry.get("notes")),
+    }
+
+
+def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_key: Any = "") -> Dict[str, Any]:
+    return {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "action": saved.get("action"),
+        "name": saved.get("name"),
+        "api_base_url": saved.get("api_base_url"),
+        "model": saved.get("model"),
+        "api_key_masked": mask_api_key(raw_api_key),
+        "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
+        "config_id": saved.get("config_id"),
+    }
+
+
+def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    station_payload = payload.get("station") or {}
+
+    probe_entries = payload.get("probe_apis")
+    if isinstance(probe_entries, list):
+        for item in probe_entries:
+            if isinstance(item, dict):
+                entries.append(item)
+
+    single_probe_fields = {
+        "name": payload.get("name") or payload.get("api_name") or payload.get("probe_api_name"),
+        "api_base_url": payload.get("api_base_url") or payload.get("api_url") or payload.get("url"),
+        "api_key": payload.get("api_key") or payload.get("key"),
+        "model": payload.get("model") or payload.get("probe_model"),
+        "notes": payload.get("notes"),
+        "is_enabled": payload.get("is_enabled"),
+        "chat_completions_path": payload.get("chat_completions_path"),
+        "responses_path": payload.get("responses_path"),
+        "responses_compact_path": payload.get("responses_compact_path"),
+    }
+    if any(value not in (None, "") for value in single_probe_fields.values()):
+        entries.append(single_probe_fields)
+
+    station_probe_fields = {
+        "name": station_payload.get("probe_api_name"),
+        "api_base_url": station_payload.get("api_base_url") or station_payload.get("probe_api_base_url"),
+        "api_key": station_payload.get("api_key") or station_payload.get("probe_api_key"),
+        "model": station_payload.get("probe_model"),
+        "notes": station_payload.get("probe_notes"),
+        "is_enabled": station_payload.get("probe_is_enabled"),
+    }
+    if any(value not in (None, "") for value in station_probe_fields.values()):
+        entries.append(station_probe_fields)
+
+    if not entries:
+        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "model": default_model})
+
+    return entries
+
+
+def upsert_probe_configs_for_station(
+    station: Dict[str, Any],
+    payload: Dict[str, Any],
+    default_model: str,
+) -> List[Dict[str, Any]]:
+    normalized_configs = [
+        normalize_probe_api_entry(station, entry, default_model)
+        for entry in resolve_probe_entries(payload, default_model)
+    ]
+    saved_configs = save_probe_api_configs(normalized_configs)
+    summaries: List[Dict[str, Any]] = []
+    for normalized, saved in zip(normalized_configs, saved_configs):
+        summaries.append(probe_summary_item(station, saved, normalized.get("api_key")))
+    return summaries
+
+
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
     station = next((item for item in registry.get("stations", []) if item.get("station_id") == record.get("station_id")), {})
     computed = compute(build_record_pricing_payload(station, record))
@@ -1597,12 +1746,56 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
 
     station["updated_at"] = timestamp
     save_registry(registry)
+    probe_api_configs = upsert_probe_configs_for_station(station, payload, computed["model_name"])
     return {
         "action": action,
         "changed_fields": ["station", "record"],
         "summary": build_write_summary(station, record),
         "station": station,
         "record": record,
+        "probe_api_configs": probe_api_configs,
+    }
+
+
+def upsert_probe_api(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, _, conflict = resolve_station_for_write(registry, station_payload, allow_create=True)
+    if conflict:
+        return conflict
+    if station is None:
+        station = upsert_station(registry, station_payload)
+        save_registry(registry)
+
+    default_model = preferred_probe_model(
+        [
+            payload.get("model"),
+            payload.get("model_name"),
+            payload.get("probe_model"),
+        ]
+    )
+    probe_api_configs = upsert_probe_configs_for_station(station, payload, default_model)
+    return {
+        "action": "upsert-probe-api",
+        "summary": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "probe_api_configs": probe_api_configs,
+        },
+        "station": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "website": station.get("website"),
+        },
+        "probe_api_configs": probe_api_configs,
     }
 
 
@@ -3402,6 +3595,7 @@ def main() -> None:
         "command",
         choices=[
             "upsert",
+            "upsert-probe-api",
             "update-station",
             "patch-record",
             "delete-records",
@@ -3416,6 +3610,8 @@ def main() -> None:
 
     if args.command == "upsert":
         result = upsert_record(registry, payload)
+    elif args.command == "upsert-probe-api":
+        result = upsert_probe_api(registry, payload)
     elif args.command == "update-station":
         result = update_station_fields(registry, payload)
     elif args.command == "patch-record":

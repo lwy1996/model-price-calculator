@@ -115,6 +115,152 @@ def now_mysql() -> str:
     return datetime.now(BEIJING_TZ).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not configs:
+        return []
+
+    db = connect()
+    try:
+        cursor = db.cursor(dictionary=True)
+        results: List[Dict[str, Any]] = []
+
+        for config in configs:
+            station_id = str(config.get("station_id") or "").strip()
+            if not station_id:
+                raise ValueError("probe 配置缺少 station_id")
+
+            name = str(config.get("name") or "").strip()
+            api_base_url = str(config.get("api_base_url") or "").strip()
+            model = str(config.get("model") or "").strip()
+            if not model:
+                raise ValueError("probe 配置缺少 model")
+
+            if api_base_url:
+                cursor.execute(
+                    """
+                    SELECT id, config_id, created_at
+                    FROM mpc_station_probe_api_configs
+                    WHERE station_id = %s
+                      AND api_base_url = %s
+                      AND model = %s
+                      AND deleted_at IS NULL
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (station_id, api_base_url, model),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT id, config_id, created_at
+                    FROM mpc_station_probe_api_configs
+                    WHERE station_id = %s
+                      AND name = %s
+                      AND model = %s
+                      AND deleted_at IS NULL
+                      AND (api_base_url = '' OR api_base_url IS NULL)
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (station_id, name, model),
+                )
+
+            existing = cursor.fetchone()
+            created_at = now_mysql()
+            updated_at = now_mysql()
+
+            if existing:
+                config_id = existing.get("config_id") or config.get("config_id") or ""
+                created_at = dt_to_iso(existing.get("created_at")) or created_at
+                cursor.execute(
+                    """
+                    UPDATE mpc_station_probe_api_configs
+                    SET
+                        station_id = %s,
+                        name = %s,
+                        api_base_url = %s,
+                        chat_completions_path = %s,
+                        responses_path = %s,
+                        responses_compact_path = %s,
+                        api_key = %s,
+                        model = %s,
+                        is_enabled = %s,
+                        last_success_endpoint_type = %s,
+                        notes = %s,
+                        updated_at = %s,
+                        deleted_at = NULL
+                    WHERE id = %s
+                    """,
+                    (
+                        station_id,
+                        name,
+                        api_base_url,
+                        config.get("chat_completions_path") or "/v1/chat/completions",
+                        config.get("responses_path") or "/v1/responses",
+                        config.get("responses_compact_path") or "/v1/responses/compact",
+                        config.get("api_key"),
+                        model,
+                        1 if config.get("is_enabled") else 0,
+                        config.get("last_success_endpoint_type") or "",
+                        config.get("notes"),
+                        updated_at,
+                        existing["id"],
+                    ),
+                )
+                action = "updated"
+            else:
+                config_id = str(config.get("config_id") or "").strip()
+                cursor.execute(
+                    """
+                    INSERT INTO mpc_station_probe_api_configs
+                        (config_id, station_id, name, api_base_url, chat_completions_path,
+                         responses_path, responses_compact_path, api_key, model, is_enabled,
+                         last_success_endpoint_type, notes, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        config_id,
+                        station_id,
+                        name,
+                        api_base_url,
+                        config.get("chat_completions_path") or "/v1/chat/completions",
+                        config.get("responses_path") or "/v1/responses",
+                        config.get("responses_compact_path") or "/v1/responses/compact",
+                        config.get("api_key"),
+                        model,
+                        1 if config.get("is_enabled") else 0,
+                        config.get("last_success_endpoint_type") or "",
+                        config.get("notes"),
+                        created_at,
+                        updated_at,
+                    ),
+                )
+                action = "created"
+
+            results.append(
+                {
+                    "action": action,
+                    "config_id": config_id,
+                    "station_id": station_id,
+                    "name": name,
+                    "api_base_url": api_base_url,
+                    "model": model,
+                    "is_enabled": bool(config.get("is_enabled")),
+                    "notes": config.get("notes") or "",
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                }
+            )
+
+        db.commit()
+        return results
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def json_loads(value: Any, default: Any) -> Any:
     if value in (None, ""):
         return default

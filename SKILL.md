@@ -19,6 +19,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 
 1. 正式写入
 - 新增或覆盖某站某模型某分组价格：`scripts/site_price_registry.py upsert`
+- 显式录入或更新站点探测 API 配置：`scripts/site_price_registry.py upsert-probe-api`
 - 更新站点公共信息：`scripts/site_price_registry.py update-station`
 - 局部修改单条记录：`scripts/site_price_registry.py patch-record`
 - 删除价格记录：`scripts/site_price_registry.py delete-records`
@@ -210,6 +211,32 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - `scripts/ingest_site_price.py`
 - `scripts/batch_ingest_site_price.py`
 
+## 探测 API 配置补充说明
+
+- 录入站点价格时，也会自动联动维护 `mpc_station_probe_api_configs`
+- 即使没有提供 `api_base_url` / `api_key`，也会默认写入一条 `默认API` 配置，缺失字段允许为空
+- 一个站点可以有多条探测 API 配置；如果一次给了多个 `API 名称 + URL`，应分别写成多条
+- 显式录入探测 API 配置使用：
+  - `scripts/site_price_registry.py upsert-probe-api --json-file <payload>`
+- 支持两种 payload 形式：
+  - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `api_key` / `model`
+  - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, api_key?, model?, notes?}]`
+- `API Key` 明文写库，但命令输出只能展示掩码
+- 三种 OpenAI 风格路径默认自动写入：
+  - `/v1/chat/completions`
+  - `/v1/responses`
+  - `/v1/responses/compact`
+- 该 skill 不负责写 `mpc_station_probe_logs` 和 `mpc_station_probe_snapshots`
+
+最小追问顺序：
+1. 先确认站点身份：`站点名称 / 官网 / 别名 / station_id` 至少一个
+2. 显式 probe 配置录入时，再补 `API 名称 / API Base URL`
+3. `API Key` 可为空
+4. `model` 优先沿用站点模型；如果一次录入多个模型，优先 `gpt-5.4`，否则取首个模型
+
+统一录入模板见下方“默认录入模板”。
+其中探测 API 建议直接写在同一份模板里的 `探测 API 配置` 区块，不再单独给一份分离模板。
+
 以下文件现在不属于这个 skill 的运行时主路径，可视为历史素材、迁移数据或后续拆分参考：
 - `assets/site-price-registry.json`
 - `assets/site-price-history.json`
@@ -251,3 +278,51 @@ gpt-5.5 按照默认
 - `gpt-5.4 按照默认`、`gpt-5.5 按照默认` 表示该模型命中官方模型目录默认价时，可不再追问输入价/输出价
 - `分组/倍率/备注` 下每行至少包含 `分组名 + 倍率`；如果没写备注，则按空备注处理
 - 当用户要模板时，默认先给这份模板；只有任务明显不适合该格式时，再改用更简化的追问
+
+统一整合版模板：
+```text
+站点名称：
+官网：
+邀请链接：
+充值比：
+是否已检测：
+最后一次检测延迟：
+
+备注：
+管理员备注：
+
+探测 API 配置：
+1.
+API 名称：默认API
+API Base URL：
+API Key：
+探测模型：gpt-5.4
+启用状态：启用
+备注：
+
+2.
+API 名称：
+API Base URL：
+API Key：
+探测模型：
+启用状态：启用
+备注：
+
+分组/倍率/备注：
+default 1倍
+plus 0.55倍
+pro20X 1.4倍
+
+模型名称及其价格信息：
+gpt-5.4 按照默认
+gpt-5.5 按照默认
+```
+
+统一整合版使用规则：
+- `探测 API 配置` 可以写多组；一个站点有几个 API，就继续写 `3.`、`4.`、`5.`
+- 如果完全不填写 `探测 API 配置`，技能也会自动补一条空的 `默认API` 记录
+- `API Base URL` 只填根地址，例如 `https://api.example.com`
+- 默认不需要单独填写三种 OpenAI 风格路径：
+  - `/v1/chat/completions`
+  - `/v1/responses`
+  - `/v1/responses/compact`
