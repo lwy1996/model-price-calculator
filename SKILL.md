@@ -30,6 +30,10 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - 提交草稿到正式库：`scripts/draft_site_price.py commit`
 - 清空当前草稿：`scripts/draft_site_price.py clear`
 
+3. 余额配置维护
+- 批量根据现有站点特征猜测并回填空的余额 `provider_type`：
+  - `scripts/site_price_registry.py guess-balance-provider-types`
+
 不再承诺以下能力：
 - 查询、搜索、排行、最便宜站点、TopN
 - 历史查看
@@ -291,6 +295,14 @@ gpt-5.5 按照默认
 备注：
 管理员备注：
 
+余额配置：
+项目类型：newapi / sub2api / 自定义
+余额 Base URL：
+Access Token：
+User ID：
+启用状态：默认禁用
+备注：
+
 探测 API 配置：
 1.
 API 名称：默认API
@@ -319,6 +331,17 @@ gpt-5.5 按照默认
 ```
 
 统一整合版使用规则：
+- 站点首次录入且不存在余额配置时，技能会自动插入一条 `mpc_station_balance_configs`
+- `项目类型` 支持：`newapi`、`sub2api`、`自定义`
+- `自定义` 会映射为 `custom_json_path`
+- `余额 Base URL` 默认取官网；如果不填且官网为空，则会写空值，后续需手补
+- `Access Token`、`User ID` 可录入；输出摘要只展示 `Access Token` 掩码
+- 余额配置默认不启用；路径类字段本次不在模板中展开，默认留空，后续按需再补
+- 若批量初始化后仍存在空的 `provider_type`，可再执行 `guess-balance-provider-types`
+- 该批量猜测只吃高置信度信号，优先参考：
+  - `mpc_station_probe_logs.response_summary`
+  - `mpc_station_probe_snapshots.response_summary`
+  - `request_url / 官网 / 探测 API 根地址` 中的 `New API / Sub2API / newapi / newcli / sub2api`
 - `探测 API 配置` 可以写多组；一个站点有几个 API，就继续写 `3.`、`4.`、`5.`
 - 如果完全不填写 `探测 API 配置`，技能也会自动补一条空的 `默认API` 记录
 - `API Base URL` 只填根地址，例如 `https://api.example.com`

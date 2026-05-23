@@ -14,7 +14,11 @@ from calc_model_price import apply_official_model_defaults, compute, format_deci
 from model_catalog import canonical_model_name
 from mysql_storage import load_history as load_mysql_history, load_registry as load_mysql_registry
 from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
+from mysql_storage import insert_balance_config as save_mysql_balance_config
+from mysql_storage import station_has_balance_config as has_mysql_balance_config
+from mysql_storage import sync_balance_base_url_by_website as sync_mysql_balance_base_url_by_website
 from mysql_storage import upsert_probe_api_configs as save_mysql_probe_api_configs
+from mysql_storage import bulk_guess_balance_provider_types as guess_mysql_balance_provider_types
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -104,6 +108,32 @@ def save_history(history: Dict[str, Any]) -> None:
 
 def save_probe_api_configs(configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return save_mysql_probe_api_configs(configs)
+
+
+def has_balance_config(station_id: str) -> bool:
+    return has_mysql_balance_config(station_id)
+
+
+def save_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    return save_mysql_balance_config(config)
+
+
+def sync_balance_base_url_by_website(station_id: str, old_website: str, new_website: str) -> Dict[str, Any]:
+    return sync_mysql_balance_base_url_by_website(station_id, old_website, new_website)
+
+
+def guess_balance_provider_types(payload: Dict[str, Any]) -> Dict[str, Any]:
+    limit = payload.get("limit")
+    try:
+        limit_value = int(limit or 0)
+    except (TypeError, ValueError):
+        limit_value = 0
+    return guess_mysql_balance_provider_types(
+        station_id=normalize_text(payload.get("station_id")),
+        station_name=normalize_text(payload.get("station_name") or payload.get("站点名称")),
+        limit=limit_value,
+        dry_run=bool(payload.get("dry_run")),
+    )
 
 
 def normalize_text(value: Any) -> str:
@@ -218,6 +248,10 @@ def mask_api_key(value: Any) -> str:
     if len(text) <= 8:
         return "*" * len(text)
     return f"{text[:4]}***{text[-4:]}"
+
+
+def mask_secret(value: Any) -> str:
+    return mask_api_key(value)
 
 
 def compact_search_key(value: Any) -> str:
@@ -669,6 +703,7 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
 
     changed_fields = []
     timestamp = now_iso()
+    balance_base_url_sync = None
 
     if "name" in station_payload or "station_name" in station_payload:
         value = normalize_text(station_payload.get("name") or station_payload.get("station_name"))
@@ -677,10 +712,16 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             changed_fields.append("name")
 
     if "website" in station_payload:
+        old_website = normalize_text(station.get("website"))
         value = normalize_text(station_payload.get("website"))
         if value and value != station.get("website"):
             station["website"] = value
             changed_fields.append("website")
+            balance_base_url_sync = sync_balance_base_url_by_website(
+                normalize_text(station.get("station_id")),
+                old_website,
+                value,
+            )
 
     if "invite_url" in station_payload or "邀请链接" in station_payload:
         value = normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接"))
@@ -784,6 +825,7 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
         "changed_fields": unique_strings(changed_fields),
         "summary": build_write_summary(station),
         "station": station,
+        "balance_base_url_sync": balance_base_url_sync,
     }
 
 
@@ -1059,6 +1101,116 @@ def upsert_probe_configs_for_station(
     for normalized, saved in zip(normalized_configs, saved_configs):
         summaries.append(probe_summary_item(station, saved, normalized.get("api_key")))
     return summaries
+
+
+def normalize_balance_provider_type(value: Any) -> str:
+    text = normalize_text(value).lower()
+    if text in {"newapi"}:
+        return "newapi"
+    if text in {"sub2api"}:
+        return "sub2api"
+    if text in {"自定义", "custom", "custom_json_path"}:
+        return "custom_json_path"
+    return ""
+
+
+def build_balance_config_id(station_id: str) -> str:
+    return "balance_" + hashlib.md5(("balance:" + normalize_text(station_id)).encode("utf-8")).hexdigest()[:24]
+
+
+def normalize_balance_config_entry(station: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = payload.get("station") or {}
+    provider_type = normalize_balance_provider_type(
+        payload.get("provider_type")
+        or payload.get("项目类型")
+        or payload.get("project_type")
+        or station_payload.get("provider_type")
+        or station_payload.get("项目类型")
+        or station_payload.get("project_type")
+    )
+    base_url = normalize_url_root(
+        payload.get("balance_base_url")
+        or payload.get("base_url")
+        or payload.get("余额 Base URL")
+        or station_payload.get("balance_base_url")
+        or station_payload.get("base_url")
+        or station_payload.get("余额 Base URL")
+        or station.get("website")
+    )
+    access_token = normalize_text(
+        payload.get("access_token")
+        or payload.get("Access Token")
+        or station_payload.get("access_token")
+        or station_payload.get("Access Token")
+    )
+    user_id = normalize_text(
+        payload.get("user_id")
+        or payload.get("User ID")
+        or station_payload.get("user_id")
+        or station_payload.get("User ID")
+    )
+    notes = normalize_text(
+        payload.get("balance_notes")
+        or payload.get("余额备注")
+        or station_payload.get("balance_notes")
+        or station_payload.get("余额备注")
+    ) or "初始化生成，需手动补充 provider_type/凭证/字段路径后启用"
+    return {
+        "config_id": build_balance_config_id(station.get("station_id") or ""),
+        "station_id": station.get("station_id") or "",
+        "provider_type": provider_type,
+        "base_url": base_url,
+        "access_token": access_token,
+        "user_id": user_id,
+        "method": "GET",
+        "path": "",
+        "headers_json": None,
+        "remaining_path": "",
+        "used_path": "",
+        "total_path": "",
+        "unit_path": "",
+        "plan_name_path": "",
+        "is_enabled": False,
+        "notes": notes,
+    }
+
+
+def balance_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_access_token: Any = "") -> Dict[str, Any]:
+    return {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "action": saved.get("action"),
+        "config_id": saved.get("config_id"),
+        "provider_type": saved.get("provider_type"),
+        "base_url": saved.get("base_url"),
+        "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
+        "access_token_masked": mask_secret(raw_access_token),
+        "user_id": saved.get("user_id"),
+    }
+
+
+def ensure_balance_config_for_station(station: Dict[str, Any], payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    station_id = normalize_text(station.get("station_id"))
+    if not station_id:
+        return []
+    if has_balance_config(station_id):
+        return [
+            {
+                "station_id": station.get("station_id"),
+                "station_name": station.get("name"),
+                "action": "skipped_existing",
+                "config_id": "",
+                "provider_type": "",
+                "base_url": normalize_text(station.get("website")),
+                "is_enabled": "禁用",
+                "access_token_masked": "",
+                "user_id": "",
+            }
+        ]
+
+    normalized = normalize_balance_config_entry(station, payload)
+    saved = save_balance_config(normalized)
+    return [balance_summary_item(station, saved, normalized.get("access_token"))]
 
 
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
@@ -1747,6 +1899,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
     station["updated_at"] = timestamp
     save_registry(registry)
     probe_api_configs = upsert_probe_configs_for_station(station, payload, computed["model_name"])
+    balance_configs = ensure_balance_config_for_station(station, payload)
     return {
         "action": action,
         "changed_fields": ["station", "record"],
@@ -1754,6 +1907,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         "station": station,
         "record": record,
         "probe_api_configs": probe_api_configs,
+        "balance_configs": balance_configs,
     }
 
 
@@ -3596,6 +3750,7 @@ def main() -> None:
         choices=[
             "upsert",
             "upsert-probe-api",
+            "guess-balance-provider-types",
             "update-station",
             "patch-record",
             "delete-records",
@@ -3612,6 +3767,8 @@ def main() -> None:
         result = upsert_record(registry, payload)
     elif args.command == "upsert-probe-api":
         result = upsert_probe_api(registry, payload)
+    elif args.command == "guess-balance-provider-types":
+        result = guess_balance_provider_types(payload)
     elif args.command == "update-station":
         result = update_station_fields(registry, payload)
     elif args.command == "patch-record":

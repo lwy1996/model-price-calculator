@@ -261,6 +261,415 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
         db.close()
 
 
+def station_has_balance_config(station_id: str) -> bool:
+    station_id = str(station_id or "").strip()
+    if not station_id:
+        return False
+
+    rows = query_all(
+        """
+        SELECT id
+        FROM mpc_station_balance_configs
+        WHERE station_id = %s
+          AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (station_id,),
+    )
+    return bool(rows)
+
+
+def insert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    station_id = str(config.get("station_id") or "").strip()
+    if not station_id:
+        raise ValueError("balance 配置缺少 station_id")
+
+    db = connect()
+    try:
+        cursor = db.cursor()
+        created_at = now_mysql()
+        updated_at = now_mysql()
+        cursor.execute(
+            """
+            INSERT INTO mpc_station_balance_configs
+                (config_id, station_id, provider_type, base_url, access_token, user_id,
+                 method, path, headers_json, remaining_path, used_path, total_path,
+                 unit_path, plan_name_path, is_enabled, notes, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                config.get("config_id") or "",
+                station_id,
+                config.get("provider_type") or "",
+                config.get("base_url") or "",
+                config.get("access_token") or None,
+                config.get("user_id") or "",
+                config.get("method") or "GET",
+                config.get("path") or "",
+                config.get("headers_json"),
+                config.get("remaining_path") or "",
+                config.get("used_path") or "",
+                config.get("total_path") or "",
+                config.get("unit_path") or "",
+                config.get("plan_name_path") or "",
+                1 if config.get("is_enabled") else 0,
+                config.get("notes"),
+                created_at,
+                updated_at,
+            ),
+        )
+        db.commit()
+        return {
+            "action": "created",
+            "config_id": config.get("config_id") or "",
+            "station_id": station_id,
+            "provider_type": config.get("provider_type") or "",
+            "base_url": config.get("base_url") or "",
+            "is_enabled": bool(config.get("is_enabled")),
+            "user_id": config.get("user_id") or "",
+            "notes": config.get("notes") or "",
+            "created_at": created_at,
+            "updated_at": updated_at,
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def sync_balance_base_url_by_website(station_id: str, old_website: str, new_website: str) -> Dict[str, Any]:
+    station_id = str(station_id or "").strip()
+    old_website = str(old_website or "").strip()
+    new_website = str(new_website or "").strip()
+    if not station_id or not old_website or not new_website or old_website == new_website:
+        return {"matched": 0, "updated": 0, "station_id": station_id}
+
+    db = connect()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS matched_count
+            FROM mpc_station_balance_configs
+            WHERE station_id = %s
+              AND deleted_at IS NULL
+              AND base_url = %s
+            """,
+            (station_id, old_website),
+        )
+        row = cursor.fetchone()
+        matched = int(row[0] if row else 0)
+
+        cursor.execute(
+            """
+            UPDATE mpc_station_balance_configs
+            SET base_url = %s,
+                updated_at = %s
+            WHERE station_id = %s
+              AND deleted_at IS NULL
+              AND base_url = %s
+            """,
+            (new_website, now_mysql(), station_id, old_website),
+        )
+        updated = int(cursor.rowcount or 0)
+        db.commit()
+        return {
+            "matched": matched,
+            "updated": updated,
+            "station_id": station_id,
+            "old_website": old_website,
+            "new_website": new_website,
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def bulk_guess_balance_provider_types(
+    *,
+    station_id: str = "",
+    station_name: str = "",
+    limit: int = 0,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    station_id = str(station_id or "").strip()
+    station_name = str(station_name or "").strip()
+    limit_value = int(limit or 0)
+
+    filters = [
+        "bc.deleted_at IS NULL",
+        "COALESCE(bc.provider_type, '') = ''",
+    ]
+    params: List[Any] = []
+    if station_id:
+        filters.append("bc.station_id = %s")
+        params.append(station_id)
+    if station_name:
+        filters.append("s.name LIKE %s")
+        params.append(f"%{station_name}%")
+
+    candidates = query_all(
+        f"""
+        SELECT
+            bc.id,
+            bc.config_id,
+            bc.station_id,
+            bc.base_url,
+            bc.notes,
+            s.name AS station_name,
+            s.website
+        FROM mpc_station_balance_configs bc
+        LEFT JOIN mpc_stations s
+          ON s.station_id COLLATE utf8mb4_unicode_ci = bc.station_id COLLATE utf8mb4_unicode_ci
+        WHERE {" AND ".join(filters)}
+        ORDER BY bc.id ASC
+        """,
+        tuple(params),
+    )
+    if limit_value > 0:
+        candidates = candidates[:limit_value]
+
+    if not candidates:
+        return {
+            "action": "guess-balance-provider-types",
+            "dry_run": dry_run,
+            "scanned": 0,
+            "matched": 0,
+            "updated": 0,
+            "items": [],
+        }
+
+    station_ids = [str(item.get("station_id") or "").strip() for item in candidates if str(item.get("station_id") or "").strip()]
+    placeholders = ", ".join(["%s"] * len(station_ids))
+
+    snapshots = query_all(
+        f"""
+        SELECT station_id, request_url, response_summary, last_probed_at
+        FROM mpc_station_probe_snapshots
+        WHERE station_id IN ({placeholders})
+        ORDER BY last_probed_at DESC, id DESC
+        """,
+        tuple(station_ids),
+    )
+    logs = query_all(
+        f"""
+        SELECT station_id, request_url, response_summary, probed_at
+        FROM mpc_station_probe_logs
+        WHERE station_id IN ({placeholders})
+          AND (
+            INSTR(response_summary, 'New API') > 0
+            OR INSTR(response_summary, 'Sub2API') > 0
+            OR INSTR(LOWER(request_url), 'newapi') > 0
+            OR INSTR(LOWER(request_url), 'newcli') > 0
+            OR INSTR(LOWER(request_url), 'sub2api') > 0
+          )
+        ORDER BY probed_at DESC, id DESC
+        """,
+        tuple(station_ids),
+    )
+    probe_configs = query_all(
+        f"""
+        SELECT station_id, name, api_base_url, model, updated_at
+        FROM mpc_station_probe_api_configs
+        WHERE deleted_at IS NULL
+          AND station_id IN ({placeholders})
+        ORDER BY updated_at DESC, id DESC
+        """,
+        tuple(station_ids),
+    )
+
+    snapshot_map: Dict[str, List[Dict[str, Any]]] = {}
+    for row in snapshots:
+        snapshot_map.setdefault(str(row.get("station_id") or "").strip(), []).append(row)
+    log_map: Dict[str, List[Dict[str, Any]]] = {}
+    for row in logs:
+        log_map.setdefault(str(row.get("station_id") or "").strip(), []).append(row)
+    probe_config_map: Dict[str, List[Dict[str, Any]]] = {}
+    for row in probe_configs:
+        probe_config_map.setdefault(str(row.get("station_id") or "").strip(), []).append(row)
+
+    def normalize_text(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    def build_clues(row: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+        clues: List[Tuple[str, str, str]] = []
+        station_key = str(row.get("station_id") or "").strip()
+        for snapshot in snapshot_map.get(station_key, []):
+            clues.append(
+                (
+                    "snapshot.response_summary",
+                    str(snapshot.get("response_summary") or ""),
+                    str(snapshot.get("last_probed_at") or ""),
+                )
+            )
+            clues.append(
+                (
+                    "snapshot.request_url",
+                    str(snapshot.get("request_url") or ""),
+                    str(snapshot.get("last_probed_at") or ""),
+                )
+            )
+        for log in log_map.get(station_key, [])[:10]:
+            clues.append(
+                (
+                    "log.response_summary",
+                    str(log.get("response_summary") or ""),
+                    str(log.get("probed_at") or ""),
+                )
+            )
+            clues.append(
+                (
+                    "log.request_url",
+                    str(log.get("request_url") or ""),
+                    str(log.get("probed_at") or ""),
+                )
+            )
+        for probe_config in probe_config_map.get(station_key, []):
+            clues.append(
+                (
+                    "probe_api.api_base_url",
+                    str(probe_config.get("api_base_url") or ""),
+                    str(probe_config.get("updated_at") or ""),
+                )
+            )
+        clues.append(("station.website", str(row.get("website") or ""), ""))
+        clues.append(("balance.base_url", str(row.get("base_url") or ""), ""))
+        return clues
+
+    def detect_provider_type(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        clues = build_clues(row)
+        best: Optional[Dict[str, Any]] = None
+        for source, raw_text, clue_time in clues:
+            text = normalize_text(raw_text)
+            if not text:
+                continue
+            current: Optional[Dict[str, Any]] = None
+            if "sub2api" in text:
+                current = {
+                    "provider_type": "sub2api",
+                    "confidence": "high",
+                    "reason": f"{source} 命中 Sub2API",
+                    "evidence": raw_text[:180],
+                    "clue_time": clue_time,
+                    "priority": 300,
+                }
+            elif "new api" in text:
+                current = {
+                    "provider_type": "newapi",
+                    "confidence": "high",
+                    "reason": f"{source} 命中 New API",
+                    "evidence": raw_text[:180],
+                    "clue_time": clue_time,
+                    "priority": 260,
+                }
+            elif "newcli" in text:
+                current = {
+                    "provider_type": "newapi",
+                    "confidence": "medium",
+                    "reason": f"{source} 命中 newcli",
+                    "evidence": raw_text[:180],
+                    "clue_time": clue_time,
+                    "priority": 230,
+                }
+            elif "newapi" in text:
+                current = {
+                    "provider_type": "newapi",
+                    "confidence": "medium",
+                    "reason": f"{source} 命中 newapi",
+                    "evidence": raw_text[:180],
+                    "clue_time": clue_time,
+                    "priority": 220,
+                }
+
+            if current and (best is None or int(current["priority"]) > int(best["priority"])):
+                best = current
+        return best
+
+    matched_items: List[Dict[str, Any]] = []
+    for row in candidates:
+        detected = detect_provider_type(row)
+        if not detected:
+            continue
+        matched_items.append(
+            {
+                "id": row.get("id"),
+                "config_id": row.get("config_id"),
+                "station_id": row.get("station_id"),
+                "station_name": row.get("station_name") or row.get("station_id"),
+                "provider_type": detected["provider_type"],
+                "confidence": detected["confidence"],
+                "reason": detected["reason"],
+                "evidence": detected["evidence"],
+                "clue_time": detected["clue_time"],
+                "base_url": row.get("base_url") or "",
+                "old_notes": row.get("notes") or "",
+            }
+        )
+
+    updated = 0
+    if matched_items and not dry_run:
+        db = connect()
+        try:
+            cursor = db.cursor()
+            updated_at = now_mysql()
+            for item in matched_items:
+                auto_note = (
+                    f"自动猜测 provider_type={item['provider_type']}"
+                    f"（confidence={item['confidence']}; reason={item['reason']}）"
+                )
+                old_notes = str(item.get("old_notes") or "").strip()
+                new_notes = auto_note if not old_notes else old_notes + "\n" + auto_note
+                cursor.execute(
+                    """
+                    UPDATE mpc_station_balance_configs
+                    SET provider_type = %s,
+                        notes = %s,
+                        updated_at = %s
+                    WHERE id = %s
+                      AND deleted_at IS NULL
+                      AND COALESCE(provider_type, '') = ''
+                    """,
+                    (
+                        item["provider_type"],
+                        new_notes,
+                        updated_at,
+                        item["id"],
+                    ),
+                )
+                updated += int(cursor.rowcount or 0)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    return {
+        "action": "guess-balance-provider-types",
+        "dry_run": dry_run,
+        "scanned": len(candidates),
+        "matched": len(matched_items),
+        "updated": updated,
+        "items": [
+            {
+                "config_id": item["config_id"],
+                "station_id": item["station_id"],
+                "station_name": item["station_name"],
+                "provider_type": item["provider_type"],
+                "confidence": item["confidence"],
+                "reason": item["reason"],
+                "evidence": item["evidence"],
+                "base_url": item["base_url"],
+            }
+            for item in matched_items
+        ],
+    }
+
+
 def json_loads(value: Any, default: Any) -> Any:
     if value in (None, ""):
         return default
