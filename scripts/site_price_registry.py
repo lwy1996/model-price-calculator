@@ -19,6 +19,7 @@ from mysql_storage import station_has_balance_config as has_mysql_balance_config
 from mysql_storage import sync_balance_base_url_by_website as sync_mysql_balance_base_url_by_website
 from mysql_storage import upsert_probe_api_configs as save_mysql_probe_api_configs
 from mysql_storage import bulk_guess_balance_provider_types as guess_mysql_balance_provider_types
+from mysql_storage import station_has_probe_api_config as has_mysql_probe_api_config
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -112,6 +113,10 @@ def save_probe_api_configs(configs: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
 def has_balance_config(station_id: str) -> bool:
     return has_mysql_balance_config(station_id)
+
+
+def has_probe_api_config(station_id: str) -> bool:
+    return has_mysql_probe_api_config(station_id)
 
 
 def save_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -996,12 +1001,33 @@ def preferred_probe_model(model_names: List[str]) -> str:
     return cleaned[0] if cleaned else "gpt-5.4"
 
 
-def build_probe_config_id(station_id: str, name: str, api_base_url: str, model: str) -> str:
+def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> Tuple[str, str, str]:
+    legacy_model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name"))
+    canonical_model = normalize_text(
+        raw_entry.get("canonical_model_name")
+        or raw_entry.get("canonical_model")
+        or raw_entry.get("标准模型名")
+        or legacy_model
+        or default_model
+    )
+    request_model = normalize_text(
+        raw_entry.get("request_model_name")
+        or raw_entry.get("request_model")
+        or raw_entry.get("请求模型名")
+        or legacy_model
+        or canonical_model
+        or default_model
+    )
+    model = legacy_model or canonical_model or request_model or default_model
+    return model, canonical_model, request_model
+
+
+def build_probe_config_id(station_id: str, name: str, api_base_url: str, canonical_model_name: str) -> str:
     stable_key = "|".join(
         [
             normalize_text(station_id),
             normalize_text(api_base_url) or normalize_text(name),
-            normalize_text(model),
+            normalize_text(canonical_model_name),
         ]
     )
     return "probe_" + hashlib.md5(stable_key.encode("utf-8")).hexdigest()
@@ -1014,8 +1040,8 @@ def normalize_probe_api_entry(
 ) -> Dict[str, Any]:
     name = normalize_text(raw_entry.get("name") or raw_entry.get("api_name") or raw_entry.get("名称")) or "默认API"
     api_base_url = normalize_url_root(raw_entry.get("api_base_url") or raw_entry.get("api_url") or raw_entry.get("url"))
-    model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name")) or default_model
-    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, model)
+    model, canonical_model_name, request_model_name = resolve_probe_model_names(raw_entry, default_model)
+    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name)
     return {
         "config_id": config_id,
         "station_id": station.get("station_id") or "",
@@ -1026,6 +1052,8 @@ def normalize_probe_api_entry(
         "responses_compact_path": normalize_text(raw_entry.get("responses_compact_path")) or "/v1/responses/compact",
         "api_key": normalize_text(raw_entry.get("api_key") or raw_entry.get("key")),
         "model": model,
+        "canonical_model_name": canonical_model_name,
+        "request_model_name": request_model_name,
         "is_enabled": normalize_optional_bool(raw_entry.get("is_enabled"), True),
         "last_success_endpoint_type": normalize_text(raw_entry.get("last_success_endpoint_type")),
         "notes": normalize_text(raw_entry.get("notes")),
@@ -1040,6 +1068,8 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
         "name": saved.get("name"),
         "api_base_url": saved.get("api_base_url"),
         "model": saved.get("model"),
+        "canonical_model_name": saved.get("canonical_model_name") or saved.get("model"),
+        "request_model_name": saved.get("request_model_name") or saved.get("model"),
         "api_key_masked": mask_api_key(raw_api_key),
         "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
         "config_id": saved.get("config_id"),
@@ -1061,6 +1091,8 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
         "api_base_url": payload.get("api_base_url") or payload.get("api_url") or payload.get("url"),
         "api_key": payload.get("api_key") or payload.get("key"),
         "model": payload.get("model") or payload.get("probe_model"),
+        "canonical_model_name": payload.get("canonical_model_name") or payload.get("canonical_model") or payload.get("标准模型名"),
+        "request_model_name": payload.get("request_model_name") or payload.get("request_model") or payload.get("请求模型名"),
         "notes": payload.get("notes"),
         "is_enabled": payload.get("is_enabled"),
         "chat_completions_path": payload.get("chat_completions_path"),
@@ -1075,6 +1107,8 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
         "api_base_url": station_payload.get("api_base_url") or station_payload.get("probe_api_base_url"),
         "api_key": station_payload.get("api_key") or station_payload.get("probe_api_key"),
         "model": station_payload.get("probe_model"),
+        "canonical_model_name": station_payload.get("canonical_model_name") or station_payload.get("canonical_model") or station_payload.get("标准模型名"),
+        "request_model_name": station_payload.get("request_model_name") or station_payload.get("request_model") or station_payload.get("请求模型名"),
         "notes": station_payload.get("probe_notes"),
         "is_enabled": station_payload.get("probe_is_enabled"),
     }
@@ -1087,11 +1121,60 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
     return entries
 
 
+def payload_mentions_probe_api(payload: Dict[str, Any]) -> bool:
+    station_payload = payload.get("station") or {}
+    if isinstance(payload.get("probe_apis"), list):
+        return True
+    probe_keys = {
+        "name",
+        "api_name",
+        "probe_api_name",
+        "api_base_url",
+        "api_url",
+        "url",
+        "api_key",
+        "key",
+        "model",
+        "probe_model",
+        "canonical_model_name",
+        "canonical_model",
+        "request_model_name",
+        "request_model",
+        "标准模型名",
+        "请求模型名",
+        "is_enabled",
+        "chat_completions_path",
+        "responses_path",
+        "responses_compact_path",
+    }
+    station_probe_keys = {
+        "probe_api_name",
+        "api_base_url",
+        "probe_api_base_url",
+        "api_key",
+        "probe_api_key",
+        "probe_model",
+        "canonical_model_name",
+        "canonical_model",
+        "request_model_name",
+        "request_model",
+        "标准模型名",
+        "请求模型名",
+        "probe_notes",
+        "probe_is_enabled",
+    }
+    return any(key in payload for key in probe_keys) or any(key in station_payload for key in station_probe_keys)
+
+
 def upsert_probe_configs_for_station(
     station: Dict[str, Any],
     payload: Dict[str, Any],
     default_model: str,
 ) -> List[Dict[str, Any]]:
+    # 价格记录补分组时不要给已有探测配置的站点追加空的默认 API。
+    if not payload_mentions_probe_api(payload) and has_probe_api_config(station.get("station_id") or ""):
+        return []
+
     normalized_configs = [
         normalize_probe_api_entry(station, entry, default_model)
         for entry in resolve_probe_entries(payload, default_model)

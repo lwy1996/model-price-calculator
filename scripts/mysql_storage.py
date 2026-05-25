@@ -132,6 +132,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
             name = str(config.get("name") or "").strip()
             api_base_url = str(config.get("api_base_url") or "").strip()
             model = str(config.get("model") or "").strip()
+            canonical_model_name = str(config.get("canonical_model_name") or model).strip()
+            request_model_name = str(config.get("request_model_name") or model).strip()
             if not model:
                 raise ValueError("probe 配置缺少 model")
 
@@ -142,12 +144,12 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     FROM mpc_station_probe_api_configs
                     WHERE station_id = %s
                       AND api_base_url = %s
-                      AND model = %s
+                      AND canonical_model_name = %s
                       AND deleted_at IS NULL
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, api_base_url, model),
+                    (station_id, api_base_url, canonical_model_name),
                 )
             else:
                 cursor.execute(
@@ -156,13 +158,13 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     FROM mpc_station_probe_api_configs
                     WHERE station_id = %s
                       AND name = %s
-                      AND model = %s
+                      AND canonical_model_name = %s
                       AND deleted_at IS NULL
                       AND (api_base_url = '' OR api_base_url IS NULL)
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, name, model),
+                    (station_id, name, canonical_model_name),
                 )
 
             existing = cursor.fetchone()
@@ -184,6 +186,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         responses_compact_path = %s,
                         api_key = %s,
                         model = %s,
+                        canonical_model_name = %s,
+                        request_model_name = %s,
                         is_enabled = %s,
                         last_success_endpoint_type = %s,
                         notes = %s,
@@ -200,6 +204,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("responses_compact_path") or "/v1/responses/compact",
                         config.get("api_key"),
                         model,
+                        canonical_model_name,
+                        request_model_name,
                         1 if config.get("is_enabled") else 0,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
@@ -214,9 +220,10 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     """
                     INSERT INTO mpc_station_probe_api_configs
                         (config_id, station_id, name, api_base_url, chat_completions_path,
-                         responses_path, responses_compact_path, api_key, model, is_enabled,
+                         responses_path, responses_compact_path, api_key, model,
+                         canonical_model_name, request_model_name, is_enabled,
                          last_success_endpoint_type, notes, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         config_id,
@@ -228,6 +235,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("responses_compact_path") or "/v1/responses/compact",
                         config.get("api_key"),
                         model,
+                        canonical_model_name,
+                        request_model_name,
                         1 if config.get("is_enabled") else 0,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
@@ -245,6 +254,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     "name": name,
                     "api_base_url": api_base_url,
                     "model": model,
+                    "canonical_model_name": canonical_model_name,
+                    "request_model_name": request_model_name,
                     "is_enabled": bool(config.get("is_enabled")),
                     "notes": config.get("notes") or "",
                     "created_at": created_at,
@@ -259,6 +270,25 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
         raise
     finally:
         db.close()
+
+
+def station_has_probe_api_config(station_id: str) -> bool:
+    station_id = str(station_id or "").strip()
+    if not station_id:
+        return False
+
+    rows = query_all(
+        """
+        SELECT id
+        FROM mpc_station_probe_api_configs
+        WHERE station_id = %s
+          AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (station_id,),
+    )
+    return bool(rows)
 
 
 def station_has_balance_config(station_id: str) -> bool:

@@ -217,14 +217,23 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 
 ## 探测 API 配置补充说明
 
-- 录入站点价格时，也会自动联动维护 `mpc_station_probe_api_configs`
-- 即使没有提供 `api_base_url` / `api_key`，也会默认写入一条 `默认API` 配置，缺失字段允许为空
+- 录入站点价格时，可自动联动维护 `mpc_station_probe_api_configs`
+- 如果没有提供 `api_base_url` / `api_key`，且该站点还没有任何探测 API 配置，才会默认写入一条空的 `默认API` 配置
+- 如果该站点已经存在探测 API 配置，普通价格录入不再追加空的 `默认API`，避免按模型或分组重复生成无效配置
 - 一个站点可以有多条探测 API 配置；如果一次给了多个 `API 名称 + URL`，应分别写成多条
 - 显式录入探测 API 配置使用：
   - `scripts/site_price_registry.py upsert-probe-api --json-file <payload>`
 - 支持两种 payload 形式：
-  - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `api_key` / `model`
-  - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, api_key?, model?, notes?}]`
+  - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `api_key` / `model` / `canonical_model_name` / `request_model_name`
+  - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, api_key?, model?, canonical_model_name?, request_model_name?, notes?}]`
+- 探测模型字段兼容规则：
+  - `model` 作为兼容旧字段继续保留
+  - 新数据优先支持拆分：
+    - `canonical_model_name` / `标准模型名`：标准模型名，例如 `gpt-5.4`
+    - `request_model_name` / `请求模型名`：实际请求模型名，例如 `量gpt-5.4`
+  - 若只给 `model`，则自动同步写入 `canonical_model_name` 与 `request_model_name`
+  - 若只给 `canonical_model_name`，则 `request_model_name` 默认沿用它
+  - 若只给 `request_model_name`，则 `canonical_model_name` 默认沿用 `model` 或本次默认探测模型
 - `API Key` 明文写库，但命令输出只能展示掩码
 - 三种 OpenAI 风格路径默认自动写入：
   - `/v1/chat/completions`
@@ -308,7 +317,8 @@ User ID：
 API 名称：默认API
 API Base URL：
 API Key：
-探测模型：gpt-5.4
+标准模型名：gpt-5.4
+请求模型名：
 启用状态：启用
 备注：
 
@@ -316,7 +326,8 @@ API Key：
 API 名称：
 API Base URL：
 API Key：
-探测模型：
+标准模型名：
+请求模型名：
 启用状态：启用
 备注：
 
@@ -343,7 +354,9 @@ gpt-5.5 按照默认
   - `mpc_station_probe_snapshots.response_summary`
   - `request_url / 官网 / 探测 API 根地址` 中的 `New API / Sub2API / newapi / newcli / sub2api`
 - `探测 API 配置` 可以写多组；一个站点有几个 API，就继续写 `3.`、`4.`、`5.`
-- 如果完全不填写 `探测 API 配置`，技能也会自动补一条空的 `默认API` 记录
+- `标准模型名` 用于展示和模型一致性评分，例如 `gpt-5.4`
+- `请求模型名` 用于真实发起探测请求；如果不填，默认沿用 `model/标准模型名`
+- 如果完全不填写 `探测 API 配置`，且站点还没有探测 API 配置，技能会自动补一条空的 `默认API` 记录；已有探测配置时跳过自动补空配置
 - `API Base URL` 只填根地址，例如 `https://api.example.com`
 - 默认不需要单独填写三种 OpenAI 风格路径：
   - `/v1/chat/completions`
