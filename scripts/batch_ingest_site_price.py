@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from registry_write_lock import registry_write_lock
 from site_price_registry import build_write_summary, load_registry, upsert_record
 
 
@@ -413,10 +414,11 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
 
 def ingest_batch(text: str) -> Dict[str, Any]:
     parsed = build_batch_payload(text)
-    registry = load_registry()
-    results = []
-    for entry in parsed["entries"]:
-        results.append(upsert_record(registry, entry))
+    with registry_write_lock():
+        registry = load_registry()
+        results = []
+        for entry in parsed["entries"]:
+            results.append(upsert_record(registry, entry))
     summary = build_write_summary(results[-1]["station"]) if results else None
     return {
         "station": parsed["station"],

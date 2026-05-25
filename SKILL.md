@@ -134,6 +134,8 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 
 ## 正式写入规则
 
+所有正式写入命令必须串行执行，禁止把多个 `upsert` / `patch-record` / `update-station` / `delete-records` / `ingest` / `batch_ingest` / `draft commit` 并行跑。写入脚本会持有统一的价格库写入锁，确保“加载全量 registry -> 修改 -> 保存全量 registry”的流程不会被另一个写入命令覆盖；如果一次要更新多个模型或分组，应按顺序逐条执行，或使用单个批量入口完成。
+
 ### 1. 新增或覆盖价格
 
 适用场景：

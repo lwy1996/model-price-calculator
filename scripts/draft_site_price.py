@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from extract_model_price import extract_payload
 from ingest_site_price import build_upsert_payload
 from model_catalog import model_defaults
+from registry_write_lock import registry_write_lock
 from site_price_registry import load_registry, upsert_record
 from mysql_storage import load_drafts as load_mysql_drafts, save_drafts as save_mysql_drafts
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -258,16 +259,19 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = load_json_file(args.json_file)
-    data = load_drafts()
 
-    if args.command == "merge":
-        result = merge_draft(data, payload)
-    elif args.command == "show":
+    if args.command == "show":
+        data = load_drafts()
         result = show_draft(data, payload)
-    elif args.command == "commit":
-        result = commit_draft(data, payload)
     else:
-        result = clear_draft(data, payload)
+        with registry_write_lock():
+            data = load_drafts()
+            if args.command == "merge":
+                result = merge_draft(data, payload)
+            elif args.command == "commit":
+                result = commit_draft(data, payload)
+            else:
+                result = clear_draft(data, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from extract_model_price import extract_payload
+from registry_write_lock import registry_write_lock
 from site_price_registry import load_json_file, load_registry, upsert_record
 
 
@@ -105,8 +106,9 @@ def main() -> None:
 
     raw = load_input(args)
     upsert_payload = build_upsert_payload(raw)
-    registry = load_registry()
-    upsert_result = upsert_record(registry, upsert_payload)
+    with registry_write_lock():
+        registry = load_registry()
+        upsert_result = upsert_record(registry, upsert_payload)
 
     print(
         json.dumps(

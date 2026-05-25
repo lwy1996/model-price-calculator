@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
 from model_catalog import canonical_model_name
+from registry_write_lock import registry_write_lock
 from mysql_storage import load_history as load_mysql_history, load_registry as load_mysql_registry
 from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
 from mysql_storage import insert_balance_config as save_mysql_balance_config
@@ -3975,24 +3976,26 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = load_json_file(args.json_file)
-    registry = load_registry()
 
-    if args.command == "upsert":
-        result = upsert_record(registry, payload)
-    elif args.command == "upsert-probe-api":
-        result = upsert_probe_api(registry, payload)
-    elif args.command == "delete-probe-api":
-        result = delete_probe_api(registry, payload)
-    elif args.command == "upsert-balance-config":
-        result = upsert_balance_config_command(registry, payload)
-    elif args.command == "guess-balance-provider-types":
-        result = guess_balance_provider_types(payload)
-    elif args.command == "update-station":
-        result = update_station_fields(registry, payload)
-    elif args.command == "patch-record":
-        result = patch_record_fields(registry, payload)
-    else:
-        result = delete_records(registry, payload)
+    with registry_write_lock():
+        registry = load_registry()
+
+        if args.command == "upsert":
+            result = upsert_record(registry, payload)
+        elif args.command == "upsert-probe-api":
+            result = upsert_probe_api(registry, payload)
+        elif args.command == "delete-probe-api":
+            result = delete_probe_api(registry, payload)
+        elif args.command == "upsert-balance-config":
+            result = upsert_balance_config_command(registry, payload)
+        elif args.command == "guess-balance-provider-types":
+            result = guess_balance_provider_types(payload)
+        elif args.command == "update-station":
+            result = update_station_fields(registry, payload)
+        elif args.command == "patch-record":
+            result = patch_record_fields(registry, payload)
+        else:
+            result = delete_records(registry, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
