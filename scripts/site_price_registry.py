@@ -20,6 +20,8 @@ from mysql_storage import sync_balance_base_url_by_website as sync_mysql_balance
 from mysql_storage import upsert_probe_api_configs as save_mysql_probe_api_configs
 from mysql_storage import bulk_guess_balance_provider_types as guess_mysql_balance_provider_types
 from mysql_storage import station_has_probe_api_config as has_mysql_probe_api_config
+from mysql_storage import soft_delete_probe_api_configs as delete_mysql_probe_api_configs
+from mysql_storage import upsert_balance_config as upsert_mysql_balance_config
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -121,6 +123,10 @@ def has_probe_api_config(station_id: str) -> bool:
 
 def save_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return save_mysql_balance_config(config)
+
+
+def upsert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    return upsert_mysql_balance_config(config)
 
 
 def sync_balance_base_url_by_website(station_id: str, old_website: str, new_website: str) -> Dict[str, Any]:
@@ -1232,6 +1238,28 @@ def normalize_balance_config_entry(station: Dict[str, Any], payload: Dict[str, A
         or station_payload.get("user_id")
         or station_payload.get("User ID")
     )
+    is_enabled = normalize_optional_bool(
+        payload.get("balance_is_enabled")
+        if "balance_is_enabled" in payload
+        else (
+            payload.get("is_enabled")
+            if "is_enabled" in payload
+            else (
+                payload.get("启用状态")
+                if "启用状态" in payload
+                else (
+                    station_payload.get("balance_is_enabled")
+                    if "balance_is_enabled" in station_payload
+                    else (
+                        station_payload.get("is_enabled")
+                        if "is_enabled" in station_payload
+                        else station_payload.get("启用状态")
+                    )
+                )
+            )
+        ),
+        False,
+    )
     notes = normalize_text(
         payload.get("balance_notes")
         or payload.get("余额备注")
@@ -1253,9 +1281,30 @@ def normalize_balance_config_entry(station: Dict[str, Any], payload: Dict[str, A
         "total_path": "",
         "unit_path": "",
         "plan_name_path": "",
-        "is_enabled": False,
+        "is_enabled": is_enabled,
         "notes": notes,
     }
+
+
+def payload_mentions_balance_config(payload: Dict[str, Any]) -> bool:
+    station_payload = payload.get("station") or {}
+    keys = {
+        "provider_type",
+        "项目类型",
+        "project_type",
+        "balance_base_url",
+        "base_url",
+        "余额 Base URL",
+        "access_token",
+        "Access Token",
+        "user_id",
+        "User ID",
+        "balance_is_enabled",
+        "启用状态",
+        "balance_notes",
+        "余额备注",
+    }
+    return any(key in payload for key in keys) or any(key in station_payload for key in keys)
 
 
 def balance_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_access_token: Any = "") -> Dict[str, Any]:
@@ -1276,22 +1325,23 @@ def ensure_balance_config_for_station(station: Dict[str, Any], payload: Dict[str
     station_id = normalize_text(station.get("station_id"))
     if not station_id:
         return []
-    if has_balance_config(station_id):
-        return [
-            {
-                "station_id": station.get("station_id"),
-                "station_name": station.get("name"),
-                "action": "skipped_existing",
-                "config_id": "",
-                "provider_type": "",
-                "base_url": normalize_text(station.get("website")),
-                "is_enabled": "禁用",
-                "access_token_masked": "",
-                "user_id": "",
-            }
-        ]
-
     normalized = normalize_balance_config_entry(station, payload)
+    if has_balance_config(station_id):
+        if payload_mentions_balance_config(payload):
+            saved = upsert_balance_config(normalized)
+            return [balance_summary_item(station, saved, normalized.get("access_token"))]
+        return [{
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "action": "skipped_existing",
+            "config_id": "",
+            "provider_type": "",
+            "base_url": normalize_text(station.get("website")),
+            "is_enabled": "禁用",
+            "access_token_masked": "",
+            "user_id": "",
+        }]
+
     saved = save_balance_config(normalized)
     return [balance_summary_item(station, saved, normalized.get("access_token"))]
 
@@ -2033,6 +2083,85 @@ def upsert_probe_api(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[
             "website": station.get("website"),
         },
         "probe_api_configs": probe_api_configs,
+    }
+
+
+def delete_probe_api(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+    if station is None or score == 0:
+        raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
+
+    filters = {
+        "station_id": station.get("station_id"),
+    }
+    for source_key, target_key in (
+        ("config_id", "config_id"),
+        ("name", "name"),
+        ("api_name", "name"),
+        ("probe_api_name", "name"),
+        ("api_base_url", "api_base_url"),
+        ("api_url", "api_base_url"),
+        ("url", "api_base_url"),
+        ("canonical_model_name", "canonical_model_name"),
+        ("canonical_model", "canonical_model_name"),
+        ("标准模型名", "canonical_model_name"),
+        ("request_model_name", "request_model_name"),
+        ("request_model", "request_model_name"),
+        ("请求模型名", "request_model_name"),
+    ):
+        if source_key in payload:
+            filters[target_key] = normalize_text(payload.get(source_key))
+    result = delete_mysql_probe_api_configs(filters)
+    result["station"] = {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "website": station.get("website"),
+    }
+    return result
+
+
+def upsert_balance_config_command(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, _, conflict = resolve_station_for_write(registry, station_payload, allow_create=True)
+    if conflict:
+        return conflict
+    if station is None:
+        station = upsert_station(registry, station_payload)
+        save_registry(registry)
+
+    normalized = normalize_balance_config_entry(station, payload)
+    saved = upsert_balance_config(normalized)
+    summary = balance_summary_item(station, saved, normalized.get("access_token"))
+    return {
+        "action": "upsert-balance-config",
+        "summary": summary,
+        "station": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "website": station.get("website"),
+        },
+        "balance_configs": [summary],
     }
 
 
@@ -3833,6 +3962,8 @@ def main() -> None:
         choices=[
             "upsert",
             "upsert-probe-api",
+            "delete-probe-api",
+            "upsert-balance-config",
             "guess-balance-provider-types",
             "update-station",
             "patch-record",
@@ -3850,6 +3981,10 @@ def main() -> None:
         result = upsert_record(registry, payload)
     elif args.command == "upsert-probe-api":
         result = upsert_probe_api(registry, payload)
+    elif args.command == "delete-probe-api":
+        result = delete_probe_api(registry, payload)
+    elif args.command == "upsert-balance-config":
+        result = upsert_balance_config_command(registry, payload)
     elif args.command == "guess-balance-provider-types":
         result = guess_balance_provider_types(payload)
     elif args.command == "update-station":

@@ -11,7 +11,27 @@ from typing import Any, Dict, List, Tuple
 from site_price_registry import build_write_summary, load_registry, upsert_record
 
 
-SECTION_KEYWORDS = {"站点名称", "官网", "邀请链接", "是否已检测", "检测时间", "倍率", "备注", "充值比", "分组备注"}
+SECTION_KEYWORDS = {
+    "站点名称",
+    "官网",
+    "邀请链接",
+    "是否已检测",
+    "检测时间",
+    "倍率",
+    "备注",
+    "充值比",
+    "分组备注",
+    "项目类型",
+    "余额 Base URL",
+    "Access Token",
+    "User ID",
+    "启用状态",
+    "API 名称",
+    "API Base URL",
+    "API Key",
+    "标准模型名",
+    "请求模型名",
+}
 
 
 def normalize_text(value: Any) -> str:
@@ -62,6 +82,15 @@ def parse_station_info(text: str) -> Dict[str, Any]:
         "is_checked": ["是否已检测", "是否检测", "已检测"],
         "checked_at": ["检测时间", "检查时间"],
         "notes": ["备注", "站点备注"],
+        "provider_type": ["项目类型"],
+        "balance_base_url": ["余额 Base URL"],
+        "access_token": ["Access Token"],
+        "user_id": ["User ID"],
+        "probe_api_name": ["API 名称"],
+        "probe_api_base_url": ["API Base URL"],
+        "probe_api_key": ["API Key"],
+        "canonical_model_name": ["标准模型名"],
+        "request_model_name": ["请求模型名"],
     }
     for key, labels in field_aliases.items():
         value = extract_labeled_value(text, labels)
@@ -90,24 +119,50 @@ def locate_group_config_line(text: str) -> str:
     return candidate
 
 
+def extract_group_config_block(text: str) -> str:
+    pattern = re.compile(r"(?mi)^[ \t]*(分组/倍率/备注|分组倍率备注|倍率|分组)[:：][ \t]*(.*)$")
+    match = pattern.search(text)
+    if not match:
+        return ""
+
+    lines = []
+    first_value = match.group(2).strip()
+    if first_value:
+        lines.append(first_value)
+
+    for line in text[match.end() :].splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if lines:
+                break
+            continue
+        if re.match(r"^\s*[^:：]+[:：]", stripped):
+            break
+        if re.match(r"^gpt-[A-Za-z0-9.\-]+(?:\s+.*)?$", stripped, re.I):
+            break
+        lines.append(stripped)
+
+    return "\n".join(lines).strip()
+
+
 def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
-    line = locate_group_config_line(text)
-    if not line:
+    block = extract_group_config_block(text) or locate_group_config_line(text)
+    if not block:
         return {}
 
     results: Dict[str, Dict[str, Any]] = {}
     pattern = re.compile(
-        r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?",
+        r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)(?:\s*分组)?\s+([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?",
         re.I,
     )
-    for group, value, note in pattern.findall(line):
+    for group, value, note in pattern.findall(block):
         results[group.lower()] = {
             "multiplier": float(value),
             "group_note": normalize_text(note),
         }
 
     if not results:
-        numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", line)
+        numeric = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*倍?\s*", block)
         if numeric:
             results["default"] = {
                 "multiplier": float(numeric.group(1)),

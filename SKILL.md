@@ -20,6 +20,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 1. 正式写入
 - 新增或覆盖某站某模型某分组价格：`scripts/site_price_registry.py upsert`
 - 显式录入或更新站点探测 API 配置：`scripts/site_price_registry.py upsert-probe-api`
+- 删除误录入的探测 API 配置：`scripts/site_price_registry.py delete-probe-api`
 - 更新站点公共信息：`scripts/site_price_registry.py update-station`
 - 局部修改单条记录：`scripts/site_price_registry.py patch-record`
 - 删除价格记录：`scripts/site_price_registry.py delete-records`
@@ -31,6 +32,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - 清空当前草稿：`scripts/draft_site_price.py clear`
 
 3. 余额配置维护
+- 新增或更新单站余额配置：`scripts/site_price_registry.py upsert-balance-config`
 - 批量根据现有站点特征猜测并回填空的余额 `provider_type`：
   - `scripts/site_price_registry.py guess-balance-provider-types`
 
@@ -221,8 +223,11 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - 如果没有提供 `api_base_url` / `api_key`，且该站点还没有任何探测 API 配置，才会默认写入一条空的 `默认API` 配置
 - 如果该站点已经存在探测 API 配置，普通价格录入不再追加空的 `默认API`，避免按模型或分组重复生成无效配置
 - 一个站点可以有多条探测 API 配置；如果一次给了多个 `API 名称 + URL`，应分别写成多条
+- 如果此前已有空 `API Base URL` 的 `默认API`，后续显式补入同站同标准模型的真实 `API Base URL` 时，应更新这条空配置，不再新增一条重复配置
 - 显式录入探测 API 配置使用：
   - `scripts/site_price_registry.py upsert-probe-api --json-file <payload>`
+- 删除误录入探测 API 配置使用：
+  - `scripts/site_price_registry.py delete-probe-api --json-file <payload>`
 - 支持两种 payload 形式：
   - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `api_key` / `model` / `canonical_model_name` / `request_model_name`
   - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, api_key?, model?, canonical_model_name?, request_model_name?, notes?}]`
@@ -343,6 +348,7 @@ gpt-5.5 按照默认
 
 统一整合版使用规则：
 - 站点首次录入且不存在余额配置时，技能会自动插入一条 `mpc_station_balance_configs`
+- 站点已存在余额配置时，如果本次输入显式包含 `项目类型`、`余额 Base URL`、`Access Token`、`User ID`、`启用状态`、`余额备注` 等余额字段，应更新已有配置，不再跳过
 - `项目类型` 支持：`newapi`、`sub2api`、`自定义`
 - `自定义` 会映射为 `custom_json_path`
 - `余额 Base URL` 默认取官网；如果不填且官网为空，则会写空值，后续需手补

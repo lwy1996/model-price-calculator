@@ -137,6 +137,7 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
             if not model:
                 raise ValueError("probe 配置缺少 model")
 
+            existing = None
             if api_base_url:
                 cursor.execute(
                     """
@@ -151,6 +152,23 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     """,
                     (station_id, api_base_url, canonical_model_name),
                 )
+                existing = cursor.fetchone()
+                if not existing:
+                    cursor.execute(
+                        """
+                        SELECT id, config_id, created_at
+                        FROM mpc_station_probe_api_configs
+                        WHERE station_id = %s
+                          AND name = %s
+                          AND canonical_model_name = %s
+                          AND deleted_at IS NULL
+                          AND (api_base_url = '' OR api_base_url IS NULL)
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (station_id, name, canonical_model_name),
+                    )
+                    existing = cursor.fetchone()
             else:
                 cursor.execute(
                     """
@@ -166,8 +184,8 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     """,
                     (station_id, name, canonical_model_name),
                 )
+                existing = cursor.fetchone()
 
-            existing = cursor.fetchone()
             created_at = now_mysql()
             updated_at = now_mysql()
 
@@ -272,6 +290,65 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
         db.close()
 
 
+def soft_delete_probe_api_configs(filters: Dict[str, Any]) -> Dict[str, Any]:
+    station_id = str(filters.get("station_id") or "").strip()
+    if not station_id:
+        raise ValueError("删除 probe 配置缺少 station_id")
+
+    conditions = ["station_id = %s", "deleted_at IS NULL"]
+    params: List[Any] = [station_id]
+    for column, key in (
+        ("config_id", "config_id"),
+        ("name", "name"),
+        ("api_base_url", "api_base_url"),
+        ("canonical_model_name", "canonical_model_name"),
+        ("request_model_name", "request_model_name"),
+    ):
+        if key in filters:
+            conditions.append(f"{column} = %s")
+            params.append(str(filters.get(key) or "").strip())
+
+    db = connect()
+    try:
+        cursor = db.cursor(dictionary=True)
+        cursor.execute(
+            f"""
+            SELECT config_id, station_id, name, api_base_url, canonical_model_name, request_model_name
+            FROM mpc_station_probe_api_configs
+            WHERE {" AND ".join(conditions)}
+            ORDER BY id
+            """,
+            tuple(params),
+        )
+        removed = list(cursor.fetchall())
+        if removed:
+            cursor.execute("SHOW COLUMNS FROM `mpc_station_probe_api_configs` LIKE %s", ("delete_token",))
+            delete_token_assignment = (
+                ", delete_token = CONCAT('deleted:', id)"
+                if cursor.fetchone() is not None
+                else ""
+            )
+            cursor.execute(
+                f"""
+                UPDATE mpc_station_probe_api_configs
+                SET deleted_at = %s{delete_token_assignment}
+                WHERE {" AND ".join(conditions)}
+                """,
+                tuple([now_mysql()] + params),
+            )
+        db.commit()
+        return {
+            "action": "delete-probe-api-configs",
+            "removed_count": len(removed),
+            "removed_configs": removed,
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def station_has_probe_api_config(station_id: str) -> bool:
     station_id = str(station_id or "").strip()
     if not station_id:
@@ -353,6 +430,95 @@ def insert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "action": "created",
             "config_id": config.get("config_id") or "",
+            "station_id": station_id,
+            "provider_type": config.get("provider_type") or "",
+            "base_url": config.get("base_url") or "",
+            "is_enabled": bool(config.get("is_enabled")),
+            "user_id": config.get("user_id") or "",
+            "notes": config.get("notes") or "",
+            "created_at": created_at,
+            "updated_at": updated_at,
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def upsert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    station_id = str(config.get("station_id") or "").strip()
+    if not station_id:
+        raise ValueError("balance 配置缺少 station_id")
+
+    db = connect()
+    try:
+        cursor = db.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT id, config_id, created_at
+            FROM mpc_station_balance_configs
+            WHERE station_id = %s
+              AND deleted_at IS NULL
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (station_id,),
+        )
+        existing = cursor.fetchone()
+        updated_at = now_mysql()
+        if existing:
+            config_id = existing.get("config_id") or config.get("config_id") or ""
+            cursor.execute(
+                """
+                UPDATE mpc_station_balance_configs
+                SET provider_type = %s,
+                    base_url = %s,
+                    access_token = %s,
+                    user_id = %s,
+                    method = %s,
+                    path = %s,
+                    headers_json = %s,
+                    remaining_path = %s,
+                    used_path = %s,
+                    total_path = %s,
+                    unit_path = %s,
+                    plan_name_path = %s,
+                    is_enabled = %s,
+                    notes = %s,
+                    updated_at = %s
+                WHERE id = %s
+                """,
+                (
+                    config.get("provider_type") or "",
+                    config.get("base_url") or "",
+                    config.get("access_token") or None,
+                    config.get("user_id") or "",
+                    config.get("method") or "GET",
+                    config.get("path") or "",
+                    config.get("headers_json"),
+                    config.get("remaining_path") or "",
+                    config.get("used_path") or "",
+                    config.get("total_path") or "",
+                    config.get("unit_path") or "",
+                    config.get("plan_name_path") or "",
+                    1 if config.get("is_enabled") else 0,
+                    config.get("notes"),
+                    updated_at,
+                    existing["id"],
+                ),
+            )
+            action = "updated"
+            created_at = dt_to_iso(existing.get("created_at"))
+        else:
+            saved = insert_balance_config(config)
+            saved["action"] = "created"
+            return saved
+
+        db.commit()
+        return {
+            "action": action,
+            "config_id": config_id,
             "station_id": station_id,
             "provider_type": config.get("provider_type") or "",
             "base_url": config.get("base_url") or "",
