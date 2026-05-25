@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 try:
     import mysql.connector
@@ -113,6 +114,266 @@ def iso_to_mysql(value: Any, fallback: Optional[str] = None) -> Optional[str]:
 
 def now_mysql() -> str:
     return datetime.now(BEIJING_TZ).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def normalize_mysql_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def first_present(payload: Dict[str, Any], keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload.get(key)
+    return None
+
+
+def parse_optional_bool(value: Any, default: bool = False) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = normalize_mysql_text(value).lower()
+    if text in {"1", "true", "yes", "y", "on", "enable", "enabled", "是", "启用", "置顶"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disable", "disabled", "否", "禁用", "不置顶"}:
+        return False
+    return default
+
+
+def parse_optional_int(value: Any, default: int = 0) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"无法解析整数: {value}")
+
+
+def validate_http_url(value: Any, field_name: str) -> Optional[str]:
+    text = normalize_mysql_text(value)
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field_name} 必须是合法 http/https URL")
+    return text
+
+
+def parse_json_array(value: Any, field_name: str) -> List[Dict[str, Any]]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{field_name} 必须是 JSON 数组") from exc
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} 必须是数组")
+    normalized: List[Dict[str, Any]] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"{field_name} 第 {index} 项必须是对象")
+        normalized.append(item)
+    return normalized
+
+
+def normalize_daily_news_links(value: Any, field_name: str) -> Tuple[Optional[str], int]:
+    items = parse_json_array(value, field_name)
+    normalized = []
+    for index, item in enumerate(items, start=1):
+        url = validate_http_url(item.get("url") or item.get("URL") or item.get("链接"), f"{field_name}[{index}].url")
+        if not url:
+            raise ValueError(f"{field_name} 第 {index} 项缺少 url")
+        title = normalize_mysql_text(item.get("title") or item.get("标题")) or url
+        normalized.append({"title": title, "url": url})
+    return (json_dumps(normalized) if normalized else None, len(normalized))
+
+
+def normalize_daily_news_images(value: Any, field_name: str) -> Tuple[Optional[str], int]:
+    items = parse_json_array(value, field_name)
+    normalized = []
+    for index, item in enumerate(items, start=1):
+        url = validate_http_url(item.get("url") or item.get("URL") or item.get("图片"), f"{field_name}[{index}].url")
+        if not url:
+            raise ValueError(f"{field_name} 第 {index} 项缺少 url")
+        alt = normalize_mysql_text(item.get("alt") or item.get("image_alt") or item.get("图片说明") or item.get("说明"))
+        normalized.append({"url": url, "alt": alt})
+    return (json_dumps(normalized) if normalized else None, len(normalized))
+
+
+def normalize_daily_news_payload(payload: Dict[str, Any], existing: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    is_update = existing is not None
+    defaults = {
+        "published_at": now_mysql(),
+        "status": "published",
+        "is_pinned": 0,
+        "sort_order": 0,
+    }
+    data: Dict[str, Any] = {}
+    counts = {"extra_links": 0, "images": 0}
+
+    field_aliases = {
+        "title": ("title", "标题"),
+        "content": ("content", "正文", "新闻正文"),
+        "link_title": ("link_title", "链接标题", "主链接标题"),
+        "source_name": ("source_name", "来源", "来源名称"),
+        "image_alt": ("image_alt", "图片说明", "主图说明"),
+    }
+    for field, aliases in field_aliases.items():
+        value = first_present(payload, aliases)
+        if is_update and any(key in payload for key in aliases):
+            if field == "title" and value in (None, ""):
+                raise ValueError("新闻标题不能为空")
+            data[field] = normalize_mysql_text(value) if value not in (None, "") else None
+        elif value not in (None, ""):
+            data[field] = normalize_mysql_text(value)
+        elif not is_update and field == "title":
+            raise ValueError("新闻录入缺少 title/标题")
+
+    if not is_update and "title" not in data:
+        raise ValueError("新闻录入缺少 title/标题")
+
+    link_url = first_present(payload, ("link_url", "主链接", "链接地址"))
+    if link_url not in (None, ""):
+        data["link_url"] = validate_http_url(link_url, "link_url")
+    elif not is_update:
+        data["link_url"] = None
+
+    image_url = first_present(payload, ("image_url", "主图", "主图地址"))
+    if image_url not in (None, ""):
+        data["image_url"] = validate_http_url(image_url, "image_url")
+    elif not is_update:
+        data["image_url"] = None
+
+    published_at = first_present(payload, ("published_at", "发布时间"))
+    if published_at not in (None, ""):
+        data["published_at"] = iso_to_mysql(published_at)
+        if not data["published_at"]:
+            raise ValueError(f"无法解析发布时间: {published_at}")
+    elif not is_update:
+        data["published_at"] = defaults["published_at"]
+
+    status = first_present(payload, ("status", "状态"))
+    if status not in (None, ""):
+        status_text = normalize_mysql_text(status)
+        if status_text not in {"draft", "published", "hidden"}:
+            raise ValueError("status 只能是 draft / published / hidden")
+        data["status"] = status_text
+    elif not is_update:
+        data["status"] = defaults["status"]
+
+    if any(key in payload for key in ("is_pinned", "是否置顶", "置顶")):
+        data["is_pinned"] = 1 if parse_optional_bool(first_present(payload, ("is_pinned", "是否置顶", "置顶"))) else 0
+    elif not is_update:
+        data["is_pinned"] = defaults["is_pinned"]
+
+    sort_order = first_present(payload, ("sort_order", "排序", "排序值"))
+    if sort_order not in (None, ""):
+        data["sort_order"] = parse_optional_int(sort_order)
+    elif not is_update:
+        data["sort_order"] = defaults["sort_order"]
+
+    links_value = first_present(payload, ("extra_links", "扩展链接"))
+    if links_value not in (None, ""):
+        data["extra_links_json"], counts["extra_links"] = normalize_daily_news_links(links_value, "extra_links")
+    elif "extra_links_json" in payload:
+        data["extra_links_json"], counts["extra_links"] = normalize_daily_news_links(payload.get("extra_links_json"), "extra_links_json")
+    elif not is_update:
+        data["extra_links_json"] = None
+
+    images_value = first_present(payload, ("images", "扩展图片"))
+    if images_value not in (None, ""):
+        data["images_json"], counts["images"] = normalize_daily_news_images(images_value, "images")
+    elif "images_json" in payload:
+        data["images_json"], counts["images"] = normalize_daily_news_images(payload.get("images_json"), "images_json")
+    elif not is_update:
+        data["images_json"] = None
+
+    if not is_update:
+        for field in ("content", "link_title", "source_name", "image_alt"):
+            data.setdefault(field, None)
+
+    return data, counts
+
+
+def upsert_daily_news(payload: Dict[str, Any]) -> Dict[str, Any]:
+    news_id = first_present(payload, ("news_id", "id", "新闻ID"))
+    db = connect()
+    try:
+        cursor = db.cursor(dictionary=True)
+        existing = None
+        if news_id not in (None, ""):
+            cursor.execute(
+                """
+                SELECT *
+                FROM site_price_daily_news
+                WHERE id = %s
+                  AND deleted_at IS NULL
+                LIMIT 1
+                """,
+                (int(news_id),),
+            )
+            existing = cursor.fetchone()
+            if not existing:
+                raise ValueError(f"未找到可更新的每日新闻: {news_id}")
+
+        data, counts = normalize_daily_news_payload(payload, existing)
+        updated_at = now_mysql()
+        if existing:
+            if not data:
+                raise ValueError("更新每日新闻时没有提供可修改字段")
+            assignments = [f"`{field}` = %s" for field in data.keys()]
+            values = list(data.values())
+            assignments.append("`updated_at` = %s")
+            values.append(updated_at)
+            values.append(existing["id"])
+            cursor.execute(
+                f"UPDATE site_price_daily_news SET {', '.join(assignments)} WHERE id = %s AND deleted_at IS NULL",
+                tuple(values),
+            )
+            saved_id = int(existing["id"])
+            action = "updated"
+        else:
+            created_at = updated_at
+            data["created_at"] = created_at
+            data["updated_at"] = updated_at
+            columns = list(data.keys())
+            cursor.execute(
+                f"INSERT INTO site_price_daily_news ({', '.join('`' + column + '`' for column in columns)}) "
+                f"VALUES ({', '.join(['%s'] * len(columns))})",
+                tuple(data[column] for column in columns),
+            )
+            saved_id = int(cursor.lastrowid)
+            action = "created"
+
+        cursor.execute("SELECT * FROM site_price_daily_news WHERE id = %s LIMIT 1", (saved_id,))
+        saved = cursor.fetchone() or {}
+        db.commit()
+        counts["extra_links"] = len(json_loads(saved.get("extra_links_json"), []))
+        counts["images"] = len(json_loads(saved.get("images_json"), []))
+        link_count = counts["extra_links"] + (1 if saved.get("link_url") else 0)
+        image_count = counts["images"] + (1 if saved.get("image_url") else 0)
+        return {
+            "action": action,
+            "news_id": saved_id,
+            "title": saved.get("title") or "",
+            "status": saved.get("status") or "",
+            "published_at": dt_to_iso(saved.get("published_at")),
+            "is_pinned": bool(saved.get("is_pinned")),
+            "sort_order": int(saved.get("sort_order") or 0),
+            "link_url": saved.get("link_url") or "",
+            "image_url": saved.get("image_url") or "",
+            "link_count": link_count,
+            "image_count": image_count,
+            "extra_link_count": counts["extra_links"],
+            "extra_image_count": counts["images"],
+            "updated_at": dt_to_iso(saved.get("updated_at")),
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:

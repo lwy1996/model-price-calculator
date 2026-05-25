@@ -36,6 +36,11 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - 批量根据现有站点特征猜测并回填空的余额 `provider_type`：
   - `scripts/site_price_registry.py guess-balance-provider-types`
 
+4. 站点每日新闻录入
+- 明确录入站点每日新闻：`scripts/site_price_registry.py upsert-daily-news`
+- 只有用户明确表达“录入新闻 / 每日新闻 / 站点新闻 / site_price_daily_news”时才执行该能力
+- 普通价格录入、探测 API 配置、余额配置维护流程不自动写新闻
+
 不再承诺以下能力：
 - 查询、搜索、排行、最便宜站点、TopN
 - 历史查看
@@ -219,6 +224,67 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - `scripts/ingest_site_price.py`
 - `scripts/batch_ingest_site_price.py`
 
+## 站点每日新闻录入
+
+站点每日新闻写入 `site_price_daily_news`，供 `time_laravel` 展示端读取。这个能力只在用户明确要求录入新闻时使用，不参与价格草稿补录，也不随普通站点价格录入自动执行。
+
+执行：
+`scripts/site_price_registry.py upsert-daily-news --json-file <payload>`
+
+写入模式：
+- 默认新增新闻；不要按标题自动覆盖历史新闻
+- 只有 payload 明确提供 `news_id` / `id` / `新闻ID` 时，才更新对应未软删记录
+- 更新新闻时采用局部更新，只修改本次 payload 中出现的字段
+- 误录需要隐藏时，可传 `news_id` + `status: hidden`
+
+字段规则：
+- 最小必填：`title` / `标题`
+- `content` / `正文`、`source_name` / `来源名称`、链接、图片都是可选项
+- `published_at` / `发布时间` 不填时默认当前北京时间
+- `status` 不填默认 `published`，只允许：`draft`、`published`、`hidden`
+- `is_pinned` / `是否置顶` 不填默认 `false`
+- `sort_order` / `排序` 不填默认 `0`，同发布时间下越大越靠前
+- `link_title` 可为空，展示端会按 `查看详情` 处理
+- 非空的 `link_url`、`image_url`、扩展链接 URL、扩展图片 URL 必须是合法 `http/https`，否则脚本应报错，不静默写入
+- `extra_links` / `扩展链接` 格式为数组：`[{ "title": "...", "url": "https://..." }]`
+- `images` / `扩展图片` 格式为数组：`[{ "url": "https://...", "alt": "..." }]`
+- 也兼容直接传 `extra_links_json` / `images_json`，但内容仍必须是 JSON 数组并通过 URL 校验
+
+推荐 payload：
+```json
+{
+  "title": "新闻标题",
+  "content": "新闻正文",
+  "published_at": "2026-05-25 15:30:00",
+  "source_name": "来源名称",
+  "link_title": "查看详情",
+  "link_url": "https://example.com/news",
+  "image_url": "https://example.com/image.png",
+  "image_alt": "图片说明",
+  "extra_links": [
+    {"title": "相关链接", "url": "https://example.com/related"}
+  ],
+  "images": [
+    {"url": "https://example.com/extra.png", "alt": "扩展图片"}
+  ],
+  "status": "published",
+  "is_pinned": false,
+  "sort_order": 0
+}
+```
+
+更新已有新闻：
+```json
+{
+  "news_id": 123,
+  "title": "更新后的标题"
+}
+```
+
+输出要求：
+- 默认输出写入摘要，不扩展成新闻列表
+- 至少包含：动作 `created/updated`、新闻 ID、标题、状态、发布时间、是否置顶、排序、链接/图片数量
+
 ## 探测 API 配置补充说明
 
 - 录入站点价格时，可自动联动维护 `mpc_station_probe_api_configs`
@@ -370,3 +436,34 @@ gpt-5.5 按照默认
   - `/v1/chat/completions`
   - `/v1/responses`
   - `/v1/responses/compact`
+
+每日新闻录入模板：
+```text
+新闻标题：
+新闻正文：
+发布时间：
+来源名称：
+
+主链接标题：
+主链接：
+
+主图地址：
+主图说明：
+
+扩展链接：
+1. 标题：  URL：
+2. 标题：  URL：
+
+扩展图片：
+1. URL：  说明：
+2. URL：  说明：
+
+状态：published
+是否置顶：否
+排序：0
+```
+
+每日新闻模板使用规则：
+- 只有用户明确要求录入新闻时才给这份模板；用户只是要录价格模板时，仍使用上面的站点价格统一整合版模板
+- 如果用户只给标题，也可以写入一条默认 `published` 新闻；缺少标题时再追问标题
+- 如果用户给了链接或图片地址，必须能通过 `http/https` 校验，否则让用户修正后再写入

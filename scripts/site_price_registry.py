@@ -23,6 +23,7 @@ from mysql_storage import bulk_guess_balance_provider_types as guess_mysql_balan
 from mysql_storage import station_has_probe_api_config as has_mysql_probe_api_config
 from mysql_storage import soft_delete_probe_api_configs as delete_mysql_probe_api_configs
 from mysql_storage import upsert_balance_config as upsert_mysql_balance_config
+from mysql_storage import upsert_daily_news as upsert_mysql_daily_news
 DEFAULT_STALE_AFTER_DAYS = 30
 LOW_CONFIDENCE_THRESHOLD = 0.7
 ANOMALY_LOW_RATIO = 0.2
@@ -128,6 +129,10 @@ def save_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 def upsert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return upsert_mysql_balance_config(config)
+
+
+def upsert_daily_news(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return upsert_mysql_daily_news(payload)
 
 
 def sync_balance_base_url_by_website(station_id: str, old_website: str, new_website: str) -> Dict[str, Any]:
@@ -3966,6 +3971,7 @@ def main() -> None:
             "delete-probe-api",
             "upsert-balance-config",
             "guess-balance-provider-types",
+            "upsert-daily-news",
             "update-station",
             "patch-record",
             "delete-records",
@@ -3978,24 +3984,26 @@ def main() -> None:
     payload = load_json_file(args.json_file)
 
     with registry_write_lock():
-        registry = load_registry()
-
-        if args.command == "upsert":
-            result = upsert_record(registry, payload)
-        elif args.command == "upsert-probe-api":
-            result = upsert_probe_api(registry, payload)
-        elif args.command == "delete-probe-api":
-            result = delete_probe_api(registry, payload)
-        elif args.command == "upsert-balance-config":
-            result = upsert_balance_config_command(registry, payload)
-        elif args.command == "guess-balance-provider-types":
-            result = guess_balance_provider_types(payload)
-        elif args.command == "update-station":
-            result = update_station_fields(registry, payload)
-        elif args.command == "patch-record":
-            result = patch_record_fields(registry, payload)
+        if args.command == "upsert-daily-news":
+            result = upsert_daily_news(payload)
         else:
-            result = delete_records(registry, payload)
+            registry = load_registry()
+            if args.command == "upsert":
+                result = upsert_record(registry, payload)
+            elif args.command == "upsert-probe-api":
+                result = upsert_probe_api(registry, payload)
+            elif args.command == "delete-probe-api":
+                result = delete_probe_api(registry, payload)
+            elif args.command == "upsert-balance-config":
+                result = upsert_balance_config_command(registry, payload)
+            elif args.command == "guess-balance-provider-types":
+                result = guess_balance_provider_types(payload)
+            elif args.command == "update-station":
+                result = update_station_fields(registry, payload)
+            elif args.command == "patch-record":
+                result = patch_record_fields(registry, payload)
+            else:
+                result = delete_records(registry, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
