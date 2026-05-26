@@ -395,6 +395,12 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
             model = str(config.get("model") or "").strip()
             canonical_model_name = str(config.get("canonical_model_name") or model).strip()
             request_model_name = str(config.get("request_model_name") or model).strip()
+            group_name = str(config.get("group_name") or "default").strip() or "default"
+            failure_count = (
+                parse_optional_int(config.get("failure_count"))
+                if config.get("failure_count") not in (None, "")
+                else None
+            )
             if not model:
                 raise ValueError("probe 配置缺少 model")
 
@@ -407,11 +413,12 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     WHERE station_id = %s
                       AND api_base_url = %s
                       AND canonical_model_name = %s
+                      AND group_name = %s
                       AND deleted_at IS NULL
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, api_base_url, canonical_model_name),
+                    (station_id, api_base_url, canonical_model_name, group_name),
                 )
                 existing = cursor.fetchone()
                 if not existing:
@@ -422,12 +429,13 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         WHERE station_id = %s
                           AND name = %s
                           AND canonical_model_name = %s
+                          AND group_name = %s
                           AND deleted_at IS NULL
                           AND (api_base_url = '' OR api_base_url IS NULL)
                         ORDER BY id DESC
                         LIMIT 1
                         """,
-                        (station_id, name, canonical_model_name),
+                        (station_id, name, canonical_model_name, group_name),
                     )
                     existing = cursor.fetchone()
             else:
@@ -438,12 +446,13 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     WHERE station_id = %s
                       AND name = %s
                       AND canonical_model_name = %s
+                      AND group_name = %s
                       AND deleted_at IS NULL
                       AND (api_base_url = '' OR api_base_url IS NULL)
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, name, canonical_model_name),
+                    (station_id, name, canonical_model_name, group_name),
                 )
                 existing = cursor.fetchone()
 
@@ -467,7 +476,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         model = %s,
                         canonical_model_name = %s,
                         request_model_name = %s,
+                        group_name = %s,
                         is_enabled = %s,
+                        failure_count = COALESCE(%s, failure_count),
                         last_success_endpoint_type = %s,
                         notes = %s,
                         updated_at = %s,
@@ -485,7 +496,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         model,
                         canonical_model_name,
                         request_model_name,
+                        group_name,
                         1 if config.get("is_enabled") else 0,
+                        failure_count,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
                         updated_at,
@@ -500,9 +513,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     INSERT INTO mpc_station_probe_api_configs
                         (config_id, station_id, name, api_base_url, chat_completions_path,
                          responses_path, responses_compact_path, api_key, model,
-                         canonical_model_name, request_model_name, is_enabled,
-                         last_success_endpoint_type, notes, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         canonical_model_name, request_model_name, group_name, is_enabled,
+                         failure_count, last_success_endpoint_type, notes, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         config_id,
@@ -516,7 +529,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         model,
                         canonical_model_name,
                         request_model_name,
+                        group_name,
                         1 if config.get("is_enabled") else 0,
+                        failure_count if failure_count is not None else 0,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
                         created_at,
@@ -535,7 +550,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     "model": model,
                     "canonical_model_name": canonical_model_name,
                     "request_model_name": request_model_name,
+                    "group_name": group_name,
                     "is_enabled": bool(config.get("is_enabled")),
+                    "failure_count": failure_count if failure_count is not None else 0,
                     "notes": config.get("notes") or "",
                     "created_at": created_at,
                     "updated_at": updated_at,

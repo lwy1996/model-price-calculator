@@ -30,6 +30,8 @@ SECTION_KEYWORDS = {
     "API 名称",
     "API Base URL",
     "API Key",
+    "绑定分组",
+    "价格分组",
     "标准模型名",
     "请求模型名",
 }
@@ -90,6 +92,7 @@ def parse_station_info(text: str) -> Dict[str, Any]:
         "probe_api_name": ["API 名称"],
         "probe_api_base_url": ["API Base URL"],
         "probe_api_key": ["API Key"],
+        "probe_group_name": ["绑定分组", "价格分组", "探测分组"],
         "canonical_model_name": ["标准模型名"],
         "request_model_name": ["请求模型名"],
     }

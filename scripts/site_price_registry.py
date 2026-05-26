@@ -1034,12 +1034,13 @@ def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> 
     return model, canonical_model, request_model
 
 
-def build_probe_config_id(station_id: str, name: str, api_base_url: str, canonical_model_name: str) -> str:
+def build_probe_config_id(station_id: str, name: str, api_base_url: str, canonical_model_name: str, group_name: str) -> str:
     stable_key = "|".join(
         [
             normalize_text(station_id),
             normalize_text(api_base_url) or normalize_text(name),
             normalize_text(canonical_model_name),
+            normalized_group(group_name),
         ]
     )
     return "probe_" + hashlib.md5(stable_key.encode("utf-8")).hexdigest()
@@ -1053,7 +1054,13 @@ def normalize_probe_api_entry(
     name = normalize_text(raw_entry.get("name") or raw_entry.get("api_name") or raw_entry.get("名称")) or "默认API"
     api_base_url = normalize_url_root(raw_entry.get("api_base_url") or raw_entry.get("api_url") or raw_entry.get("url"))
     model, canonical_model_name, request_model_name = resolve_probe_model_names(raw_entry, default_model)
-    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name)
+    group_name = normalized_group(
+        raw_entry.get("group_name")
+        or raw_entry.get("group")
+        or raw_entry.get("分组")
+        or raw_entry.get("价格分组")
+    )
+    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name, group_name)
     return {
         "config_id": config_id,
         "station_id": station.get("station_id") or "",
@@ -1066,7 +1073,9 @@ def normalize_probe_api_entry(
         "model": model,
         "canonical_model_name": canonical_model_name,
         "request_model_name": request_model_name,
+        "group_name": group_name,
         "is_enabled": normalize_optional_bool(raw_entry.get("is_enabled"), True),
+        "failure_count": normalize_int(raw_entry.get("failure_count") or raw_entry.get("失败次数"), 0),
         "last_success_endpoint_type": normalize_text(raw_entry.get("last_success_endpoint_type")),
         "notes": normalize_text(raw_entry.get("notes")),
     }
@@ -1082,6 +1091,8 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
         "model": saved.get("model"),
         "canonical_model_name": saved.get("canonical_model_name") or saved.get("model"),
         "request_model_name": saved.get("request_model_name") or saved.get("model"),
+        "group_name": saved.get("group_name") or "default",
+        "failure_count": saved.get("failure_count") or 0,
         "api_key_masked": mask_api_key(raw_api_key),
         "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
         "config_id": saved.get("config_id"),
@@ -1091,6 +1102,15 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
 def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     station_payload = payload.get("station") or {}
+    pricing_payload = payload.get("pricing") or {}
+    default_group = (
+        pricing_payload.get("group")
+        or pricing_payload.get("分组")
+        or payload.get("group_name")
+        or payload.get("group")
+        or payload.get("分组")
+        or "default"
+    )
 
     probe_entries = payload.get("probe_apis")
     if isinstance(probe_entries, list):
@@ -1105,8 +1125,10 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
         "model": payload.get("model") or payload.get("probe_model"),
         "canonical_model_name": payload.get("canonical_model_name") or payload.get("canonical_model") or payload.get("标准模型名"),
         "request_model_name": payload.get("request_model_name") or payload.get("request_model") or payload.get("请求模型名"),
+        "group_name": payload.get("group_name") or payload.get("group") or payload.get("分组") or payload.get("价格分组"),
         "notes": payload.get("notes"),
         "is_enabled": payload.get("is_enabled"),
+        "failure_count": payload.get("failure_count") or payload.get("失败次数"),
         "chat_completions_path": payload.get("chat_completions_path"),
         "responses_path": payload.get("responses_path"),
         "responses_compact_path": payload.get("responses_compact_path"),
@@ -1121,14 +1143,16 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
         "model": station_payload.get("probe_model"),
         "canonical_model_name": station_payload.get("canonical_model_name") or station_payload.get("canonical_model") or station_payload.get("标准模型名"),
         "request_model_name": station_payload.get("request_model_name") or station_payload.get("request_model") or station_payload.get("请求模型名"),
+        "group_name": station_payload.get("probe_group_name") or station_payload.get("group_name") or station_payload.get("group") or station_payload.get("分组"),
         "notes": station_payload.get("probe_notes"),
         "is_enabled": station_payload.get("probe_is_enabled"),
+        "failure_count": station_payload.get("probe_failure_count") or station_payload.get("failure_count") or station_payload.get("失败次数"),
     }
     if any(value not in (None, "") for value in station_probe_fields.values()):
         entries.append(station_probe_fields)
 
     if not entries:
-        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "model": default_model})
+        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "model": default_model, "group_name": default_group})
 
     return entries
 
@@ -1152,9 +1176,15 @@ def payload_mentions_probe_api(payload: Dict[str, Any]) -> bool:
         "canonical_model",
         "request_model_name",
         "request_model",
+        "group_name",
+        "group",
+        "分组",
+        "价格分组",
         "标准模型名",
         "请求模型名",
         "is_enabled",
+        "failure_count",
+        "失败次数",
         "chat_completions_path",
         "responses_path",
         "responses_compact_path",
@@ -1170,10 +1200,17 @@ def payload_mentions_probe_api(payload: Dict[str, Any]) -> bool:
         "canonical_model",
         "request_model_name",
         "request_model",
+        "probe_group_name",
+        "group_name",
+        "group",
+        "分组",
         "标准模型名",
         "请求模型名",
         "probe_notes",
         "probe_is_enabled",
+        "probe_failure_count",
+        "failure_count",
+        "失败次数",
     }
     return any(key in payload for key in probe_keys) or any(key in station_payload for key in station_probe_keys)
 

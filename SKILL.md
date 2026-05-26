@@ -288,6 +288,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 ## 探测 API 配置补充说明
 
 - 录入站点价格时，可自动联动维护 `mpc_station_probe_api_configs`
+- 探测 API 配置必须绑定价格分组字段 `group_name`；匹配逻辑使用 `station_id + group_name`，不同站点的同名分组可以重复
 - 如果没有提供 `api_base_url` / `api_key`，且该站点还没有任何探测 API 配置，才会默认写入一条空的 `默认API` 配置
 - 如果该站点已经存在探测 API 配置，普通价格录入不再追加空的 `默认API`，避免按模型或分组重复生成无效配置
 - 一个站点可以有多条探测 API 配置；如果一次给了多个 `API 名称 + URL`，应分别写成多条
@@ -297,8 +298,10 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 - 删除误录入探测 API 配置使用：
   - `scripts/site_price_registry.py delete-probe-api --json-file <payload>`
 - 支持两种 payload 形式：
-  - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `api_key` / `model` / `canonical_model_name` / `request_model_name`
-  - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, api_key?, model?, canonical_model_name?, request_model_name?, notes?}]`
+  - 单条：站点识别字段 + `name` + `api_base_url` + `group_name` + 可选 `api_key` / `model` / `canonical_model_name` / `request_model_name`
+  - 多条：站点识别字段 + `probe_apis: [{name, api_base_url, group_name, api_key?, model?, canonical_model_name?, request_model_name?, notes?}]`
+- `group_name` 可兼容 `group`、`分组`、`价格分组`；未提供时默认 `default`
+- 后续每个站点每个价格分组应维护一条探测 API 配置；同站点同 API 根地址同标准模型下，`group_name` 会参与 `config_id` 和唯一性判断
 - 探测模型字段兼容规则：
   - `model` 作为兼容旧字段继续保留
   - 新数据优先支持拆分：
@@ -308,6 +311,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
   - 若只给 `canonical_model_name`，则 `request_model_name` 默认沿用它
   - 若只给 `request_model_name`，则 `canonical_model_name` 默认沿用 `model` 或本次默认探测模型
 - `API Key` 明文写库，但命令输出只能展示掩码
+- `failure_count` 由重试探测维护，普通录入默认写 `0`，除非用户明确要求重置或指定
 - 三种 OpenAI 风格路径默认自动写入：
   - `/v1/chat/completions`
   - `/v1/responses`
@@ -317,8 +321,9 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
 最小追问顺序：
 1. 先确认站点身份：`站点名称 / 官网 / 别名 / station_id` 至少一个
 2. 显式 probe 配置录入时，再补 `API 名称 / API Base URL`
-3. `API Key` 可为空
-4. `model` 优先沿用站点模型；如果一次录入多个模型，优先 `gpt-5.4`，否则取首个模型
+3. 再补该配置绑定的 `分组/group_name`；如果用户没有分组概念，默认 `default`
+4. `API Key` 可为空
+5. `model` 优先沿用站点模型；如果一次录入多个模型，优先 `gpt-5.4`，否则取首个模型
 
 统一录入模板见下方“默认录入模板”。
 其中探测 API 建议直接写在同一份模板里的 `探测 API 配置` 区块，不再单独给一份分离模板。
@@ -390,6 +395,7 @@ User ID：
 API 名称：默认API
 API Base URL：
 API Key：
+绑定分组：default
 标准模型名：gpt-5.4
 请求模型名：
 启用状态：启用
@@ -399,6 +405,7 @@ API Key：
 API 名称：
 API Base URL：
 API Key：
+绑定分组：
 标准模型名：
 请求模型名：
 启用状态：启用
@@ -428,6 +435,8 @@ gpt-5.5 按照默认
   - `mpc_station_probe_snapshots.response_summary`
   - `request_url / 官网 / 探测 API 根地址` 中的 `New API / Sub2API / newapi / newcli / sub2api`
 - `探测 API 配置` 可以写多组；一个站点有几个 API，就继续写 `3.`、`4.`、`5.`
+- 每组探测 API 要填写绑定分组；比如 `plus` 分组的配置写 `绑定分组：plus`
+- 不同站点可以都使用 `default`、`plus` 等相同分组名；系统按 `station_id + group_name` 匹配，不会互相影响
 - `标准模型名` 用于展示和模型一致性评分，例如 `gpt-5.4`
 - `请求模型名` 用于真实发起探测请求；如果不填，默认沿用 `model/标准模型名`
 - 如果完全不填写 `探测 API 配置`，且站点还没有探测 API 配置，技能会自动补一条空的 `默认API` 记录；已有探测配置时跳过自动补空配置

@@ -1,6 +1,23 @@
+# Python 运行缓存
 __pycache__/
 *.pyc
+
+# 本地配置
 config/storage.local.json
+
+# IDE / Agent 本地目录
+.idea/
+.serena/
+
+# 运行期临时产物
+runtime/*.lock
 runtime/mysql-seed-current-data.sql
 runtime/mysql-json-export/
-runtime/*.lock
+runtime/muchuapi-draft-merge.json
+
+# 根目录临时批处理产物
+tmp-*.txt
+tmp-*.json
+
+# 本地草稿 SQL
+database/mysql/002_add_config_uniqueness_indexes.sql
