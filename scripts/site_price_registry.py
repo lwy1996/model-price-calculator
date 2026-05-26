@@ -46,6 +46,7 @@ PRICE_HISTORY_FIELDS = [
     "sale_price",
     "computed",
 ]
+PRICE_HISTORY_CHANGE_FIELDS = set(PRICE_HISTORY_FIELDS)
 LAST_CHECK_LATENCY_FIELD_KEYS = (
     "last_check_latency_seconds",
     "最后一次检测延迟",
@@ -957,6 +958,13 @@ def append_price_history(
 ) -> None:
     if not price_record_changed(old_record, new_record):
         return
+    resolved_changed_fields = changed_fields or [
+        field
+        for field in PRICE_HISTORY_FIELDS
+        if old_record.get(field) != new_record.get(field)
+    ]
+    if not any(field in PRICE_HISTORY_CHANGE_FIELDS for field in resolved_changed_fields):
+        return
     history = load_history()
     history.setdefault("version", 1)
     history.setdefault("changes", []).append(
@@ -967,11 +975,7 @@ def append_price_history(
             "station_id": new_record.get("station_id") or old_record.get("station_id"),
             "model_name": new_record.get("model_name") or old_record.get("model_name"),
             "group": new_record.get("group") or old_record.get("group"),
-            "changed_fields": changed_fields or [
-                field
-                for field in PRICE_HISTORY_FIELDS
-                if old_record.get(field) != new_record.get(field)
-            ],
+            "changed_fields": resolved_changed_fields,
             "old": history_value(old_record),
             "new": history_value(new_record),
             "summary_change_percent": calculate_change_percent(old_record, new_record),
@@ -1013,8 +1017,8 @@ def preferred_probe_model(model_names: List[str]) -> str:
     return cleaned[0] if cleaned else "gpt-5.4"
 
 
-def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> Tuple[str, str, str]:
-    legacy_model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name"))
+def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> Tuple[str, str]:
+    legacy_model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name") or raw_entry.get("probe_model"))
     canonical_model = normalize_text(
         raw_entry.get("canonical_model_name")
         or raw_entry.get("canonical_model")
@@ -1030,8 +1034,7 @@ def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> 
         or canonical_model
         or default_model
     )
-    model = legacy_model or canonical_model or request_model or default_model
-    return model, canonical_model, request_model
+    return canonical_model, request_model
 
 
 def build_probe_config_id(station_id: str, name: str, api_base_url: str, canonical_model_name: str, group_name: str) -> str:
@@ -1053,7 +1056,7 @@ def normalize_probe_api_entry(
 ) -> Dict[str, Any]:
     name = normalize_text(raw_entry.get("name") or raw_entry.get("api_name") or raw_entry.get("名称")) or "默认API"
     api_base_url = normalize_url_root(raw_entry.get("api_base_url") or raw_entry.get("api_url") or raw_entry.get("url"))
-    model, canonical_model_name, request_model_name = resolve_probe_model_names(raw_entry, default_model)
+    canonical_model_name, request_model_name = resolve_probe_model_names(raw_entry, default_model)
     group_name = normalized_group(
         raw_entry.get("group_name")
         or raw_entry.get("group")
@@ -1070,7 +1073,6 @@ def normalize_probe_api_entry(
         "responses_path": normalize_text(raw_entry.get("responses_path")) or "/v1/responses",
         "responses_compact_path": normalize_text(raw_entry.get("responses_compact_path")) or "/v1/responses/compact",
         "api_key": normalize_text(raw_entry.get("api_key") or raw_entry.get("key")),
-        "model": model,
         "canonical_model_name": canonical_model_name,
         "request_model_name": request_model_name,
         "group_name": group_name,
@@ -1088,9 +1090,8 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
         "action": saved.get("action"),
         "name": saved.get("name"),
         "api_base_url": saved.get("api_base_url"),
-        "model": saved.get("model"),
-        "canonical_model_name": saved.get("canonical_model_name") or saved.get("model"),
-        "request_model_name": saved.get("request_model_name") or saved.get("model"),
+        "canonical_model_name": saved.get("canonical_model_name"),
+        "request_model_name": saved.get("request_model_name") or saved.get("canonical_model_name"),
         "group_name": saved.get("group_name") or "default",
         "failure_count": saved.get("failure_count") or 0,
         "api_key_masked": mask_api_key(raw_api_key),
@@ -1152,7 +1153,7 @@ def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[D
         entries.append(station_probe_fields)
 
     if not entries:
-        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "model": default_model, "group_name": default_group})
+        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "canonical_model_name": default_model, "request_model_name": default_model, "group_name": default_group})
 
     return entries
 
@@ -2039,6 +2040,16 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
             or pricing_payload.get("缓存创建价格")
         ),
         "group_note": pricing_payload.get("group_note") or pricing_payload.get("分组备注"),
+        "is_group_enabled": normalize_optional_bool(
+            pricing_payload.get("is_group_enabled")
+            if "is_group_enabled" in pricing_payload
+            else (
+                pricing_payload.get("group_enabled")
+                if "group_enabled" in pricing_payload
+                else pricing_payload.get("分组启用状态") if "分组启用状态" in pricing_payload else pricing_payload.get("是否启用")
+            ),
+            True,
+        ),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
         "recharge_ratio": resolve_station_recharge_ratio(station),
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
@@ -2235,6 +2246,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_read_price": ["cache_read_price", "缓存读取价格"],
         "cache_write_price": ["cache_write_price", "缓存创建价格"],
         "group_note": ["group_note", "分组备注"],
+        "is_group_enabled": ["is_group_enabled", "group_enabled", "分组启用状态", "是否启用"],
         "multiplier": ["multiplier", "倍率"],
         "sale_price": ["sale_price", "售价", "站点售价"],
     }
@@ -2256,6 +2268,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_read_price": record.get("cache_read_price"),
         "cache_write_price": record.get("cache_write_price"),
         "group_note": record.get("group_note"),
+        "is_group_enabled": record.get("is_group_enabled", True),
         "multiplier": record.get("multiplier"),
         "recharge_ratio": resolve_station_recharge_ratio(station, record),
         "sale_price": record.get("sale_price"),
@@ -2273,6 +2286,8 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         for source_key in source_keys:
             if source_key in payload:
                 value = payload[source_key]
+                if target_field == "is_group_enabled":
+                    value = normalize_bool(value)
                 if pricing_payload.get(target_field) != value:
                     pricing_payload[target_field] = value
                     changed_fields.append(target_field)
@@ -2313,6 +2328,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "cache_read_price": pricing_payload.get("cache_read_price"),
             "cache_write_price": pricing_payload.get("cache_write_price"),
             "group_note": pricing_payload.get("group_note"),
+            "is_group_enabled": pricing_payload.get("is_group_enabled", True),
             "multiplier": pricing_payload.get("multiplier"),
             # patch-record 只应回写明确参与本次计算的充值比，避免站点级字段缺失时误回退到 1:1。
             "recharge_ratio": pricing_payload.get("recharge_ratio") or resolve_station_recharge_ratio(station, record),
@@ -2375,8 +2391,6 @@ def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[st
     registry["price_records"] = kept_records
     timestamp = now_iso()
     station["updated_at"] = timestamp
-    for record in removed_records:
-        append_price_history(record, {}, "delete-record", ["deleted"])
     save_registry(registry)
 
     return {

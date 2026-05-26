@@ -392,17 +392,17 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
 
             name = str(config.get("name") or "").strip()
             api_base_url = str(config.get("api_base_url") or "").strip()
-            model = str(config.get("model") or "").strip()
-            canonical_model_name = str(config.get("canonical_model_name") or model).strip()
-            request_model_name = str(config.get("request_model_name") or model).strip()
+            legacy_model = str(config.get("model") or "").strip()
+            canonical_model_name = str(config.get("canonical_model_name") or legacy_model).strip()
+            request_model_name = str(config.get("request_model_name") or canonical_model_name).strip()
             group_name = str(config.get("group_name") or "default").strip() or "default"
             failure_count = (
                 parse_optional_int(config.get("failure_count"))
                 if config.get("failure_count") not in (None, "")
                 else None
             )
-            if not model:
-                raise ValueError("probe 配置缺少 model")
+            if not canonical_model_name:
+                raise ValueError("probe 配置缺少 canonical_model_name")
 
             existing = None
             if api_base_url:
@@ -473,7 +473,6 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         responses_path = %s,
                         responses_compact_path = %s,
                         api_key = %s,
-                        model = %s,
                         canonical_model_name = %s,
                         request_model_name = %s,
                         group_name = %s,
@@ -493,7 +492,6 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("responses_path") or "/v1/responses",
                         config.get("responses_compact_path") or "/v1/responses/compact",
                         config.get("api_key"),
-                        model,
                         canonical_model_name,
                         request_model_name,
                         group_name,
@@ -512,10 +510,10 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     """
                     INSERT INTO mpc_station_probe_api_configs
                         (config_id, station_id, name, api_base_url, chat_completions_path,
-                         responses_path, responses_compact_path, api_key, model,
+                         responses_path, responses_compact_path, api_key,
                          canonical_model_name, request_model_name, group_name, is_enabled,
                          failure_count, last_success_endpoint_type, notes, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         config_id,
@@ -526,7 +524,6 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("responses_path") or "/v1/responses",
                         config.get("responses_compact_path") or "/v1/responses/compact",
                         config.get("api_key"),
-                        model,
                         canonical_model_name,
                         request_model_name,
                         group_name,
@@ -547,7 +544,6 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     "station_id": station_id,
                     "name": name,
                     "api_base_url": api_base_url,
-                    "model": model,
                     "canonical_model_name": canonical_model_name,
                     "request_model_name": request_model_name,
                     "group_name": group_name,
@@ -947,7 +943,7 @@ def bulk_guess_balance_provider_types(
     )
     probe_configs = query_all(
         f"""
-        SELECT station_id, name, api_base_url, model, updated_at
+        SELECT station_id, name, api_base_url, canonical_model_name, request_model_name, updated_at
         FROM mpc_station_probe_api_configs
         WHERE deleted_at IS NULL
           AND station_id IN ({placeholders})
@@ -1255,6 +1251,7 @@ def load_registry() -> Dict[str, Any]:
                 "station_id": row["station_id"],
                 "model_name": row["model_name"],
                 "group": row.get("group_name") or "default",
+                "is_group_enabled": bool(row.get("is_group_enabled")),
                 "source": row.get("source") or "",
                 "currency_hint": row.get("currency_hint") or "",
                 "input_price": row.get("input_price") or "",
@@ -1399,15 +1396,16 @@ def save_registry(registry: Dict[str, Any]) -> None:
             cursor.execute(
                 """
                 INSERT INTO mpc_price_records
-                    (record_id, station_id, model_name, group_name, group_note, source, currency_hint,
+                    (record_id, station_id, model_name, group_name, group_note, is_group_enabled, source, currency_hint,
                      input_price, output_price, cache_price, cache_read_price, cache_write_price,
                      multiplier, recharge_ratio, sale_price, tags_json, computed_json,
                      input_rmb_per_m, output_rmb_per_m, cache_read_rmb_per_m, summary_rmb_per_m,
                      last_verified_at, expires_at, stale_after_days, created_at, updated_at)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     group_note = VALUES(group_note),
+                    is_group_enabled = VALUES(is_group_enabled),
                     source = VALUES(source),
                     currency_hint = VALUES(currency_hint),
                     input_price = VALUES(input_price),
@@ -1437,6 +1435,7 @@ def save_registry(registry: Dict[str, Any]) -> None:
                     record.get("model_name") or "",
                     record.get("group") or "default",
                     record.get("group_note"),
+                    1 if record.get("is_group_enabled", True) else 0,
                     record.get("source") or "",
                     record.get("currency_hint") or "",
                     record.get("input_price") or "",
