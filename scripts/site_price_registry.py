@@ -471,20 +471,50 @@ def resolve_station_summary_recharge_ratio(station: Dict[str, Any], summary: Dic
     return "1:1"
 
 
-def normalize_group_multiplier_map(value: Any) -> Dict[str, float]:
+def normalize_group_config_map(value: Any) -> Dict[str, Dict[str, Any]]:
     if not isinstance(value, dict):
         return {}
 
-    normalized: Dict[str, float] = {}
+    normalized: Dict[str, Dict[str, Any]] = {}
     for key, raw in value.items():
         group = normalize_text(key).lower()
         if not group:
             continue
-        numeric = to_decimal(raw)
+        if isinstance(raw, dict):
+            multiplier_raw = raw.get("multiplier") or raw.get("倍率") or 1
+            api_key = normalize_text(raw.get("api_key") or raw.get("key") or raw.get("API Key"))
+            failure_count = normalize_int(raw.get("failure_count") or raw.get("失败次数"), 0)
+            has_api_key = "api_key" in raw or "key" in raw or "API Key" in raw
+            has_failure_count = "failure_count" in raw or "失败次数" in raw
+        else:
+            multiplier_raw = raw
+            api_key = ""
+            failure_count = 0
+            has_api_key = False
+            has_failure_count = False
+        numeric = to_decimal(multiplier_raw)
         if numeric is None:
             continue
-        normalized[group] = float(numeric)
+        group_config = {
+            "multiplier": float(numeric),
+        }
+        if has_api_key:
+            group_config["api_key"] = api_key
+        if has_failure_count:
+            group_config["failure_count"] = failure_count
+        normalized[group] = group_config
     return normalized
+
+
+def normalize_group_multiplier_map(value: Any) -> Dict[str, Any]:
+    return normalize_group_config_map(value)
+
+
+def group_multiplier_value(raw: Any, default: float = 1.0) -> float:
+    if isinstance(raw, dict):
+        raw = raw.get("multiplier")
+    numeric = to_decimal(raw)
+    return float(numeric) if numeric is not None else default
 
 
 def build_station_identifiers(station: Dict[str, Any], include_api: bool = True) -> List[str]:
@@ -1063,7 +1093,7 @@ def normalize_probe_api_entry(
         or raw_entry.get("分组")
         or raw_entry.get("价格分组")
     )
-    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name, group_name)
+    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name, "")
     return {
         "config_id": config_id,
         "station_id": station.get("station_id") or "",
@@ -1092,7 +1122,7 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
         "api_base_url": saved.get("api_base_url"),
         "canonical_model_name": saved.get("canonical_model_name"),
         "request_model_name": saved.get("request_model_name") or saved.get("canonical_model_name"),
-        "group_name": saved.get("group_name") or "default",
+        "group_name": saved.get("group_name") or "",
         "failure_count": saved.get("failure_count") or 0,
         "api_key_masked": mask_api_key(raw_api_key),
         "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
@@ -1213,6 +1243,34 @@ def payload_mentions_probe_api(payload: Dict[str, Any]) -> bool:
         "failure_count",
         "失败次数",
     }
+
+
+def apply_probe_group_api_keys(station: Dict[str, Any], configs: List[Dict[str, Any]]) -> None:
+    if not configs:
+        return
+
+    group_configs = dict(station.get("group_multipliers") or {})
+    changed = False
+    for config in configs:
+        api_key = normalize_text(config.get("api_key"))
+        if not api_key:
+            continue
+        group = normalized_group(config.get("group_name"))
+        current = group_configs.get(group)
+        if isinstance(current, dict):
+            next_config = dict(current)
+        else:
+            next_config = {
+                "multiplier": group_multiplier_value(current),
+            }
+        next_config["api_key"] = api_key
+        if config.get("failure_count") not in (None, ""):
+            next_config["failure_count"] = normalize_int(config.get("failure_count"), 0)
+        group_configs[group] = next_config
+        changed = True
+
+    if changed:
+        station["group_multipliers"] = group_configs
     return any(key in payload for key in probe_keys) or any(key in station_payload for key in station_probe_keys)
 
 
@@ -1229,6 +1287,7 @@ def upsert_probe_configs_for_station(
         normalize_probe_api_entry(station, entry, default_model)
         for entry in resolve_probe_entries(payload, default_model)
     ]
+    apply_probe_group_api_keys(station, normalized_configs)
     saved_configs = save_probe_api_configs(normalized_configs)
     summaries: List[Dict[str, Any]] = []
     for normalized, saved in zip(normalized_configs, saved_configs):
@@ -1999,7 +2058,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         station_group_multipliers = station.get("group_multipliers") or {}
         station_multiplier = station_group_multipliers.get(group.lower())
         if station_multiplier not in (None, ""):
-            pricing_payload["multiplier"] = station_multiplier
+            pricing_payload["multiplier"] = group_multiplier_value(station_multiplier)
 
     pricing_payload["recharge_ratio"] = resolve_station_recharge_ratio(station, inherited_record)
 

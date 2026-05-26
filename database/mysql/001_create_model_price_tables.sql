@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS `mpc_station_group_multipliers` (
   `station_id` VARCHAR(191) NOT NULL COMMENT '站点业务ID',
   `group_name` VARCHAR(191) NOT NULL COMMENT '站点分组名称，例如 default、vip、pro',
   `multiplier` DECIMAL(18,6) NOT NULL COMMENT '该分组默认倍率',
+  `api_key` TEXT NULL COMMENT '该站点该分组用于 API 探测的 Key',
+  `failure_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '该分组重试探测连续失败次数，达到 5 后停止选中',
   `created_at` DATETIME NOT NULL COMMENT '创建时间',
   `updated_at` DATETIME NOT NULL COMMENT '最后更新时间',
   `deleted_at` DATETIME NULL COMMENT '软删除时间，NULL 表示未删除',

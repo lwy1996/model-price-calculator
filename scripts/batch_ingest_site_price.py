@@ -119,12 +119,12 @@ def parse_group_note(text: str) -> str:
 
 
 def locate_group_config_line(text: str) -> str:
-    candidate = extract_labeled_value(text, ["分组/倍率/备注", "分组倍率备注", "倍率", "分组"])
+    candidate = extract_labeled_value(text, ["分组/倍率/备注/API Key", "分组/倍率/备注", "分组倍率备注", "倍率", "分组"])
     return candidate
 
 
 def extract_group_config_block(text: str) -> str:
-    pattern = re.compile(r"(?mi)^[ \t]*(分组/倍率/备注|分组倍率备注|倍率|分组)[:：][ \t]*(.*)$")
+    pattern = re.compile(r"(?mi)^[ \t]*(分组/倍率/备注/API Key|分组/倍率/备注|分组倍率备注|倍率|分组)[:：][ \t]*(.*)$")
     match = pattern.search(text)
     if not match:
         return ""
@@ -156,13 +156,17 @@ def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
 
     results: Dict[str, Dict[str, Any]] = {}
     pattern = re.compile(
-        r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)(?:\s*分组)?\s+([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?",
+        r"(?m)^\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)(?:\s*分组)?\s+([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?(?:\s+(.*))?\s*$",
         re.I,
     )
-    for group, value, note in pattern.findall(block):
+    for match in pattern.finditer(block):
+        group, value, note, tail = match.groups()
+        note_text = normalize_text(" ".join(part for part in [note, tail] if part))
+        key_match = re.search(r"(?:api[_ -]?key|key|密钥)\s*[=:：]\s*([^\s,，;；)）]+)", note_text, re.I)
         results[group.lower()] = {
             "multiplier": float(value),
-            "group_note": normalize_text(note),
+            "group_note": normalize_text(re.sub(r"(?:api[_ -]?key|key|密钥)\s*[=:：]\s*[^\s,，;；)）]+", "", note_text, flags=re.I)),
+            "api_key": key_match.group(1) if key_match else "",
         }
 
     if not results:
@@ -175,9 +179,12 @@ def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
     return results
 
 
-def parse_group_multipliers(text: str) -> Dict[str, float]:
+def parse_group_multipliers(text: str) -> Dict[str, Dict[str, Any]]:
     return {
-        group: config.get("multiplier", 1.0)
+        group: {
+            "multiplier": config.get("multiplier", 1.0),
+            "api_key": config.get("api_key") or "",
+        }
         for group, config in parse_group_configs(text).items()
     }
 
@@ -358,7 +365,14 @@ def revert_post_multiplier_price(price_text: str, multiplier: float) -> str:
     return format_price_like(price_text, reverted)
 
 
-def resolve_source_group(block: Dict[str, Any], groups: Dict[str, float]) -> str:
+def group_multiplier_value(raw: Any) -> float:
+    if isinstance(raw, dict):
+        raw = raw.get("multiplier")
+    numeric = to_decimal(raw)
+    return float(numeric) if numeric is not None else 1.0
+
+
+def resolve_source_group(block: Dict[str, Any], groups: Dict[str, Any]) -> str:
     scoped_group = normalize_text(block.get("scoped_group")).lower()
     if scoped_group:
         return scoped_group
@@ -381,7 +395,7 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
         source_group = resolve_source_group(model, groups)
         target_groups = groups
         if source_group:
-            target_groups = {source_group: groups.get(source_group, 1.0)}
+            target_groups = {source_group: groups.get(source_group, {"multiplier": 1.0})}
 
         base_prices = {
             key: model.get(key)
@@ -389,15 +403,15 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
             if model.get(key)
         }
         if model.get("post_multiplier_pricing") and source_group:
-            source_multiplier = groups.get(source_group, 1.0)
+            source_multiplier = group_multiplier_value(groups.get(source_group, 1.0))
             for price_key, price_value in list(base_prices.items()):
                 base_prices[price_key] = revert_post_multiplier_price(price_value, source_multiplier)
 
-        for group, multiplier in target_groups.items():
+        for group, group_config in target_groups.items():
             pricing = {
                 "model_name": model.get("model_name"),
                 "group": group,
-                "multiplier": multiplier,
+                "multiplier": group_multiplier_value(group_config),
                 "group_note": group_notes.get(group) or model.get("group_note") or "",
             }
             pricing.update(base_prices)

@@ -395,12 +395,6 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
             legacy_model = str(config.get("model") or "").strip()
             canonical_model_name = str(config.get("canonical_model_name") or legacy_model).strip()
             request_model_name = str(config.get("request_model_name") or canonical_model_name).strip()
-            group_name = str(config.get("group_name") or "default").strip() or "default"
-            failure_count = (
-                parse_optional_int(config.get("failure_count"))
-                if config.get("failure_count") not in (None, "")
-                else None
-            )
             if not canonical_model_name:
                 raise ValueError("probe 配置缺少 canonical_model_name")
 
@@ -413,12 +407,11 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     WHERE station_id = %s
                       AND api_base_url = %s
                       AND canonical_model_name = %s
-                      AND group_name = %s
                       AND deleted_at IS NULL
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, api_base_url, canonical_model_name, group_name),
+                    (station_id, api_base_url, canonical_model_name),
                 )
                 existing = cursor.fetchone()
                 if not existing:
@@ -429,13 +422,12 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         WHERE station_id = %s
                           AND name = %s
                           AND canonical_model_name = %s
-                          AND group_name = %s
                           AND deleted_at IS NULL
                           AND (api_base_url = '' OR api_base_url IS NULL)
                         ORDER BY id DESC
                         LIMIT 1
                         """,
-                        (station_id, name, canonical_model_name, group_name),
+                        (station_id, name, canonical_model_name),
                     )
                     existing = cursor.fetchone()
             else:
@@ -446,13 +438,12 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     WHERE station_id = %s
                       AND name = %s
                       AND canonical_model_name = %s
-                      AND group_name = %s
                       AND deleted_at IS NULL
                       AND (api_base_url = '' OR api_base_url IS NULL)
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (station_id, name, canonical_model_name, group_name),
+                    (station_id, name, canonical_model_name),
                 )
                 existing = cursor.fetchone()
 
@@ -472,12 +463,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         chat_completions_path = %s,
                         responses_path = %s,
                         responses_compact_path = %s,
-                        api_key = %s,
                         canonical_model_name = %s,
                         request_model_name = %s,
-                        group_name = %s,
                         is_enabled = %s,
-                        failure_count = COALESCE(%s, failure_count),
                         last_success_endpoint_type = %s,
                         notes = %s,
                         updated_at = %s,
@@ -491,12 +479,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("chat_completions_path") or "/v1/chat/completions",
                         config.get("responses_path") or "/v1/responses",
                         config.get("responses_compact_path") or "/v1/responses/compact",
-                        config.get("api_key"),
                         canonical_model_name,
                         request_model_name,
-                        group_name,
                         1 if config.get("is_enabled") else 0,
-                        failure_count,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
                         updated_at,
@@ -510,10 +495,10 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     """
                     INSERT INTO mpc_station_probe_api_configs
                         (config_id, station_id, name, api_base_url, chat_completions_path,
-                         responses_path, responses_compact_path, api_key,
-                         canonical_model_name, request_model_name, group_name, is_enabled,
-                         failure_count, last_success_endpoint_type, notes, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         responses_path, responses_compact_path,
+                         canonical_model_name, request_model_name, is_enabled,
+                         last_success_endpoint_type, notes, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         config_id,
@@ -523,12 +508,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                         config.get("chat_completions_path") or "/v1/chat/completions",
                         config.get("responses_path") or "/v1/responses",
                         config.get("responses_compact_path") or "/v1/responses/compact",
-                        config.get("api_key"),
                         canonical_model_name,
                         request_model_name,
-                        group_name,
                         1 if config.get("is_enabled") else 0,
-                        failure_count if failure_count is not None else 0,
                         config.get("last_success_endpoint_type") or "",
                         config.get("notes"),
                         created_at,
@@ -546,9 +528,9 @@ def upsert_probe_api_configs(configs: Sequence[Dict[str, Any]]) -> List[Dict[str
                     "api_base_url": api_base_url,
                     "canonical_model_name": canonical_model_name,
                     "request_model_name": request_model_name,
-                    "group_name": group_name,
+                    "group_name": "",
                     "is_enabled": bool(config.get("is_enabled")),
-                    "failure_count": failure_count if failure_count is not None else 0,
+                    "failure_count": 0,
                     "notes": config.get("notes") or "",
                     "created_at": created_at,
                     "updated_at": updated_at,
@@ -1234,14 +1216,18 @@ def load_registry() -> Dict[str, Any]:
                 station["aliases"].append(alias)
 
         cursor.execute(
-            "SELECT station_id, group_name, multiplier FROM mpc_station_group_multipliers "
+            "SELECT station_id, group_name, multiplier, api_key, failure_count FROM mpc_station_group_multipliers "
             "WHERE deleted_at IS NULL ORDER BY id"
         )
         for row in cursor.fetchall():
             station = stations_by_id.get(row["station_id"])
             if station is None:
                 continue
-            station.setdefault("group_multipliers", {})[row["group_name"]] = float(row["multiplier"])
+            station.setdefault("group_multipliers", {})[row["group_name"]] = {
+                "multiplier": float(row["multiplier"]),
+                "api_key": row.get("api_key") or "",
+                "failure_count": int(row.get("failure_count") or 0),
+            }
 
         cursor.execute("SELECT * FROM mpc_price_records WHERE deleted_at IS NULL ORDER BY id")
         records = []
@@ -1376,15 +1362,40 @@ def save_registry(registry: Dict[str, Any]) -> None:
                     (station_id,),
                 )
             for group_name, multiplier in multipliers.items():
+                if isinstance(multiplier, dict):
+                    has_group_api_key = "api_key" in multiplier
+                    has_group_failure_count = "failure_count" in multiplier
+                    group_api_key = multiplier.get("api_key")
+                    group_failure_count = parse_optional_int(multiplier.get("failure_count"))
+                    multiplier_value = multiplier.get("multiplier")
+                else:
+                    has_group_api_key = False
+                    has_group_failure_count = False
+                    group_api_key = None
+                    group_failure_count = None
+                    multiplier_value = multiplier
                 cursor.execute(
                     """
                     INSERT INTO mpc_station_group_multipliers
-                        (station_id, group_name, multiplier, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE multiplier = VALUES(multiplier), updated_at = VALUES(updated_at),
+                        (station_id, group_name, multiplier, api_key, failure_count, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE multiplier = VALUES(multiplier),
+                        api_key = IF(%s = 1, VALUES(api_key), api_key),
+                        failure_count = IF(%s = 1, VALUES(failure_count), failure_count),
+                        updated_at = VALUES(updated_at),
                         deleted_at = NULL, delete_token = ''
                     """,
-                    (station_id, group_name, decimal_or_none(multiplier), created_at, updated_at),
+                    (
+                        station_id,
+                        group_name,
+                        decimal_or_none(multiplier_value),
+                        group_api_key or "",
+                        group_failure_count if group_failure_count is not None else 0,
+                        created_at,
+                        updated_at,
+                        1 if has_group_api_key else 0,
+                        1 if has_group_failure_count else 0,
+                    ),
                 )
 
         for record in records:
