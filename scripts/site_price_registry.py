@@ -1122,8 +1122,6 @@ def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_k
         "api_base_url": saved.get("api_base_url"),
         "canonical_model_name": saved.get("canonical_model_name"),
         "request_model_name": saved.get("request_model_name") or saved.get("canonical_model_name"),
-        "group_name": saved.get("group_name") or "",
-        "failure_count": saved.get("failure_count") or 0,
         "api_key_masked": mask_api_key(raw_api_key),
         "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
         "config_id": saved.get("config_id"),

@@ -308,7 +308,7 @@ description: 维护中转站价格库的 MySQL 写入技能，支持新增或覆
   - 单条：站点识别字段 + `name` + `api_base_url` + 可选 `canonical_model_name` / `request_model_name` / `api_key` / `group_name`
   - 多条兼容：站点识别字段 + `probe_apis: [{name, api_base_url, group_name?, api_key?, canonical_model_name?, request_model_name?, notes?}]`
 - `group_name` 可兼容 `group`、`分组`、`价格分组`；未提供时默认 `default`
-- 旧 `probe_apis` 中的 `group_name + api_key` 只用于写入分组表的 API Key；站点级探测配置不会按分组重复创建
+- 旧 `probe_apis` 中的 `group_name + api_key + failure_count` 只用于写入分组表；站点级探测配置不会写入 `group_name`、`api_key`、`failure_count`，也不会按分组重复创建
 - 探测模型字段规则：
   - `canonical_model_name` / `标准模型名`：标准模型名，必须对应 `mpc_price_records.model_name`，例如 `gpt-5.4`
   - `request_model_name` / `请求模型名`：实际请求模型名，例如 `量gpt-5.4`
