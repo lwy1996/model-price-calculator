@@ -460,6 +460,14 @@ def resolve_station_recharge_ratio(station: Dict[str, Any], record: Optional[Dic
     return "1:1"
 
 
+def resolve_record_recharge_ratio(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> str:
+    if record is not None:
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return resolve_station_recharge_ratio(station)
+
+
 def resolve_station_summary_recharge_ratio(station: Dict[str, Any], summary: Dict[str, Any]) -> str:
     station_ratio = normalize_text(station.get("recharge_ratio"))
     if station_ratio:
@@ -1269,7 +1277,6 @@ def apply_probe_group_api_keys(station: Dict[str, Any], configs: List[Dict[str, 
 
     if changed:
         station["group_multipliers"] = group_configs
-    return any(key in payload for key in probe_keys) or any(key in station_payload for key in station_probe_keys)
 
 
 def upsert_probe_configs_for_station(
@@ -2058,7 +2065,8 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         if station_multiplier not in (None, ""):
             pricing_payload["multiplier"] = group_multiplier_value(station_multiplier)
 
-    pricing_payload["recharge_ratio"] = resolve_station_recharge_ratio(station, inherited_record)
+    effective_recharge_ratio = station_ratio_override or resolve_record_recharge_ratio(station, inherited_record)
+    pricing_payload["recharge_ratio"] = effective_recharge_ratio
 
     pricing_payload = apply_official_model_defaults(pricing_payload)
 
@@ -2108,7 +2116,7 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
             True,
         ),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
-        "recharge_ratio": resolve_station_recharge_ratio(station),
+        "recharge_ratio": effective_recharge_ratio,
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
         "tags": unique_strings(ensure_list(payload.get("tags"))),
         "confidence_score": confidence_score,
@@ -2327,7 +2335,7 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "group_note": record.get("group_note"),
         "is_group_enabled": record.get("is_group_enabled", True),
         "multiplier": record.get("multiplier"),
-        "recharge_ratio": resolve_station_recharge_ratio(station, record),
+        "recharge_ratio": resolve_record_recharge_ratio(station, record),
         "sale_price": record.get("sale_price"),
     }
 
