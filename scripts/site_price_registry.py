@@ -2,22 +2,90 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import re
 from copy import deepcopy
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from calc_model_price import compute, format_decimal, to_decimal
-
-
-REGISTRY_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-registry.json"
+from calc_model_price import apply_official_model_defaults, compute, format_decimal, to_decimal
+from model_catalog import canonical_model_name
+from registry_write_lock import registry_write_lock
+from mysql_storage import load_history as load_mysql_history, load_registry as load_mysql_registry
+from mysql_storage import save_history as save_mysql_history, save_registry as save_mysql_registry
+from mysql_storage import insert_balance_config as save_mysql_balance_config
+from mysql_storage import station_has_balance_config as has_mysql_balance_config
+from mysql_storage import sync_balance_base_url_by_website as sync_mysql_balance_base_url_by_website
+from mysql_storage import upsert_probe_api_configs as save_mysql_probe_api_configs
+from mysql_storage import bulk_guess_balance_provider_types as guess_mysql_balance_provider_types
+from mysql_storage import station_has_probe_api_config as has_mysql_probe_api_config
+from mysql_storage import soft_delete_probe_api_configs as delete_mysql_probe_api_configs
+from mysql_storage import upsert_balance_config as upsert_mysql_balance_config
+from mysql_storage import upsert_daily_news as upsert_mysql_daily_news
+DEFAULT_STALE_AFTER_DAYS = 30
+LOW_CONFIDENCE_THRESHOLD = 0.7
+ANOMALY_LOW_RATIO = 0.2
+BEIJING_TZ = timezone(timedelta(hours=8))
+CONFIDENCE_SOURCE_RULES = [
+    (("official", "官网", "官方", "控制台", "价格页"), 0.95, "官网/官方价格页"),
+    (("screenshot", "截图", "图片", "price-card", "价格卡片"), 0.85, "截图/价格卡片"),
+    (("qq", "qq群", "群公告", "微信群", "wx群", "公告"), 0.70, "社群公告"),
+    (("user", "manual", "用户口述", "手动", "口述"), 0.60, "用户口述/手动记录"),
+    (("inferred", "history", "历史推断", "推断", "默认"), 0.40, "历史推断/默认值"),
+]
+PRICE_HISTORY_FIELDS = [
+    "input_price",
+    "output_price",
+    "cache_price",
+    "cache_read_price",
+    "cache_write_price",
+    "multiplier",
+    "recharge_ratio",
+    "sale_price",
+    "computed",
+]
+PRICE_HISTORY_CHANGE_FIELDS = set(PRICE_HISTORY_FIELDS)
+LAST_CHECK_LATENCY_FIELD_KEYS = (
+    "last_check_latency_seconds",
+    "最后一次检测延迟",
+    "最后一次检测延迟(秒)",
+    "最后一次检测延迟（秒）",
+    "检测延迟",
+    "检测延迟(秒)",
+    "检测延迟（秒）",
+)
+ADMIN_NOTES_FIELD_KEYS = ("admin_notes", "管理员备注")
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(BEIJING_TZ).replace(microsecond=0).isoformat()
+
+
+def normalize_detection_flag(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    text = normalize_text(value).lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y", "是", "已检测"}:
+        return True
+    if text in {"0", "false", "no", "n", "否", "未检测"}:
+        return False
+    return None
+
+
+def station_payload_mentions_checked(station_payload: Dict[str, Any]) -> bool:
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    if detection_flag is True:
+        return True
+    return "已检测" in normalize_text(station_payload.get("notes"))
 
 
 def load_json_file(path: str) -> Dict[str, Any]:
@@ -29,15 +97,61 @@ def load_json_file(path: str) -> Dict[str, Any]:
 
 
 def load_registry() -> Dict[str, Any]:
-    if not REGISTRY_PATH.exists():
-        return {"version": 1, "stations": [], "price_records": []}
-    return load_json_file(str(REGISTRY_PATH))
+    return load_mysql_registry()
 
 
 def save_registry(registry: Dict[str, Any]) -> None:
-    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(REGISTRY_PATH, "w", encoding="utf-8") as file:
-        json.dump(registry, file, ensure_ascii=False, indent=2)
+    save_mysql_registry(registry)
+
+
+def load_history() -> Dict[str, Any]:
+    return load_mysql_history()
+
+
+def save_history(history: Dict[str, Any]) -> None:
+    save_mysql_history(history)
+
+
+def save_probe_api_configs(configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return save_mysql_probe_api_configs(configs)
+
+
+def has_balance_config(station_id: str) -> bool:
+    return has_mysql_balance_config(station_id)
+
+
+def has_probe_api_config(station_id: str) -> bool:
+    return has_mysql_probe_api_config(station_id)
+
+
+def save_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    return save_mysql_balance_config(config)
+
+
+def upsert_balance_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    return upsert_mysql_balance_config(config)
+
+
+def upsert_daily_news(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return upsert_mysql_daily_news(payload)
+
+
+def sync_balance_base_url_by_website(station_id: str, old_website: str, new_website: str) -> Dict[str, Any]:
+    return sync_mysql_balance_base_url_by_website(station_id, old_website, new_website)
+
+
+def guess_balance_provider_types(payload: Dict[str, Any]) -> Dict[str, Any]:
+    limit = payload.get("limit")
+    try:
+        limit_value = int(limit or 0)
+    except (TypeError, ValueError):
+        limit_value = 0
+    return guess_mysql_balance_provider_types(
+        station_id=normalize_text(payload.get("station_id")),
+        station_name=normalize_text(payload.get("station_name") or payload.get("站点名称")),
+        limit=limit_value,
+        dry_run=bool(payload.get("dry_run")),
+    )
 
 
 def normalize_text(value: Any) -> str:
@@ -53,12 +167,149 @@ def normalize_bool(value: Any) -> bool:
     return text in {"1", "true", "yes", "y", "是", "测试", "test"}
 
 
+def first_present_value(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload.get(key)
+    return None
+
+
+def normalize_optional_bool(value: Any, default: bool = True) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = normalize_text(value).lower()
+    if text in {"1", "true", "yes", "y", "on", "enable", "enabled", "启用"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disable", "disabled", "禁用"}:
+        return False
+    return default
+
+
+def normalize_optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    text = normalize_text(value)
+    match = re.search(r"-?\d+", text.replace(",", ""))
+    if not match:
+        raise ValueError(f"无法解析整数: {value}")
+    return int(match.group(0))
+
+
+def parse_iso_datetime(value: Any) -> Optional[datetime]:
+    text = normalize_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=BEIJING_TZ)
+    return parsed
+
+
+def days_since(value: Any, now: Optional[datetime] = None) -> Optional[int]:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    current = now or datetime.now(BEIJING_TZ)
+    return max((current - parsed).days, 0)
+
+
+def normalize_int(value: Any, default: int) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return default
+    return numeric if numeric > 0 else default
+
+
+def normalize_confidence(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    text = normalize_text(value).rstrip("%")
+    try:
+        numeric = float(text)
+    except (TypeError, ValueError):
+        return None
+    if numeric > 1 and numeric <= 100:
+        numeric = numeric / 100
+    if numeric < 0 or numeric > 1:
+        return None
+    return round(numeric, 2)
+
+
 def normalize_key(value: Any) -> str:
     text = normalize_text(value).lower()
     text = re.sub(r"^https?://", "", text)
     text = text.rstrip("/")
-    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"[^\w]+", "-", text, flags=re.UNICODE)
+    text = text.replace("_", "-")
     return text.strip("-")
+
+
+def normalize_url_root(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return ""
+    return text.rstrip("/")
+
+
+def mask_api_key(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return ""
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:4]}***{text[-4:]}"
+
+
+def mask_secret(value: Any) -> str:
+    return mask_api_key(value)
+
+
+def compact_search_key(value: Any) -> str:
+    return re.sub(r"[-\s]+", "", normalize_key(value))
+
+
+def fuzzy_ratio(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return difflib.SequenceMatcher(None, left, right).ratio()
+
+
+def text_matches_query(query: Any, value: Any) -> bool:
+    query_text = normalize_text(query).lower()
+    value_text = normalize_text(value).lower()
+    if not query_text or not value_text:
+        return False
+    if query_text in value_text:
+        return True
+
+    query_key = normalize_key(query_text)
+    value_key = normalize_key(value_text)
+    if query_key and value_key and query_key in value_key:
+        return True
+
+    query_compact = compact_search_key(query_text)
+    value_compact = compact_search_key(value_text)
+    if query_compact and value_compact and query_compact in value_compact:
+        return True
+
+    query_parts = [part for part in re.split(r"[-\s]+", query_key) if part]
+    if query_parts and all(part in value_key for part in query_parts):
+        return True
+
+    if len(query_compact) >= 4:
+        candidates = [part for part in re.split(r"[-\s:/._]+", value_key) if len(part) >= 4]
+        candidates.append(value_compact)
+        if any(fuzzy_ratio(query_compact, candidate) >= 0.78 for candidate in candidates):
+            return True
+    return False
 
 
 def identifier_variants(value: Any) -> List[str]:
@@ -113,24 +364,170 @@ def unique_strings(values: List[str]) -> List[str]:
     return result
 
 
-def normalize_group_multiplier_map(value: Any) -> Dict[str, float]:
+def resolve_confidence(payload: Dict[str, Any], station: Optional[Dict[str, Any]] = None) -> Tuple[float, str]:
+    explicit = normalize_confidence(
+        payload.get("confidence_score")
+        or payload.get("可信度")
+        or payload.get("price_confidence")
+    )
+    if explicit is not None:
+        return explicit, "显式指定"
+
+    haystacks = [
+        payload.get("source"),
+        payload.get("来源"),
+        payload.get("confidence_reason"),
+        payload.get("notes"),
+        payload.get("备注"),
+        payload.get("group_note"),
+        payload.get("分组备注"),
+    ]
+    if station:
+        haystacks.extend([station.get("notes"), station.get("website")])
+    text = " ".join(normalize_text(item).lower() for item in haystacks if normalize_text(item))
+    for keywords, score, reason in CONFIDENCE_SOURCE_RULES:
+        if any(keyword.lower() in text for keyword in keywords):
+            return score, reason
+    return 0.60, "默认手动记录"
+
+
+def record_confidence(record: Dict[str, Any], station: Optional[Dict[str, Any]] = None) -> Tuple[float, str]:
+    explicit = normalize_confidence(record.get("confidence_score"))
+    if explicit is not None:
+        return explicit, normalize_text(record.get("confidence_reason")) or "记录字段"
+    return resolve_confidence(record, station)
+
+
+def confidence_label(score: Any) -> str:
+    numeric = normalize_confidence(score)
+    if numeric is None:
+        return "-"
+    return f"{numeric:.2f}"
+
+
+def resolve_stale_after_days(station: Dict[str, Any], record: Dict[str, Any]) -> int:
+    return normalize_int(
+        record.get("stale_after_days")
+        or station.get("stale_after_days"),
+        DEFAULT_STALE_AFTER_DAYS,
+    )
+
+
+def record_verified_at(station: Dict[str, Any], record: Dict[str, Any]) -> str:
+    return (
+        normalize_text(record.get("last_verified_at"))
+        or normalize_text(station.get("last_verified_at"))
+        or normalize_text(record.get("updated_at"))
+        or normalize_text(record.get("created_at"))
+    )
+
+
+def price_stale_warnings(station: Dict[str, Any], record: Dict[str, Any]) -> List[str]:
+    warnings = []
+    now = datetime.now(BEIJING_TZ)
+    expires_at = parse_iso_datetime(record.get("expires_at") or station.get("expires_at"))
+    if expires_at is not None and expires_at < now:
+        warnings.append(f"价格已过期（{iso_to_display(expires_at.isoformat())}）")
+
+    verified_at = record_verified_at(station, record)
+    age_days = days_since(verified_at, now)
+    stale_after_days = resolve_stale_after_days(station, record)
+    if age_days is None:
+        warnings.append("未记录验证时间")
+    elif age_days > stale_after_days:
+        warnings.append(f"该价格 {age_days} 天未验证，可能已过期")
+    return warnings
+
+
+def record_health_warnings(station: Dict[str, Any], record: Dict[str, Any], extra: Optional[List[str]] = None) -> List[str]:
+    warnings = []
+    confidence_score, _ = record_confidence(record, station)
+    if confidence_score < LOW_CONFIDENCE_THRESHOLD:
+        warnings.append(f"可信度偏低（{confidence_label(confidence_score)}）")
+    warnings.extend(price_stale_warnings(station, record))
+    warnings.extend(extra or [])
+    return unique_strings(warnings)
+
+
+def resolve_station_recharge_ratio(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> str:
+    station_ratio = normalize_text(station.get("recharge_ratio"))
+    if station_ratio:
+        return station_ratio
+    if record is not None:
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return "1:1"
+
+
+def resolve_record_recharge_ratio(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> str:
+    if record is not None:
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return resolve_station_recharge_ratio(station)
+
+
+def resolve_station_summary_recharge_ratio(station: Dict[str, Any], summary: Dict[str, Any]) -> str:
+    station_ratio = normalize_text(station.get("recharge_ratio"))
+    if station_ratio:
+        return station_ratio
+    for record in summary.get("records", []):
+        record_ratio = normalize_text(record.get("recharge_ratio"))
+        if record_ratio:
+            return record_ratio
+    return "1:1"
+
+
+def normalize_group_config_map(value: Any) -> Dict[str, Dict[str, Any]]:
     if not isinstance(value, dict):
         return {}
 
-    normalized: Dict[str, float] = {}
+    normalized: Dict[str, Dict[str, Any]] = {}
     for key, raw in value.items():
         group = normalize_text(key).lower()
         if not group:
             continue
-        numeric = to_decimal(raw)
+        if isinstance(raw, dict):
+            multiplier_raw = raw.get("multiplier") or raw.get("倍率") or 1
+            api_key = normalize_text(raw.get("api_key") or raw.get("key") or raw.get("API Key"))
+            failure_count = normalize_int(raw.get("failure_count") or raw.get("失败次数"), 0)
+            has_api_key = "api_key" in raw or "key" in raw or "API Key" in raw
+            has_failure_count = "failure_count" in raw or "失败次数" in raw
+        else:
+            multiplier_raw = raw
+            api_key = ""
+            failure_count = 0
+            has_api_key = False
+            has_failure_count = False
+        numeric = to_decimal(multiplier_raw)
         if numeric is None:
             continue
-        normalized[group] = float(numeric)
+        group_config = {
+            "multiplier": float(numeric),
+        }
+        if has_api_key:
+            group_config["api_key"] = api_key
+        if has_failure_count:
+            group_config["failure_count"] = failure_count
+        normalized[group] = group_config
     return normalized
 
 
-def build_station_identifiers(station: Dict[str, Any]) -> List[str]:
+def normalize_group_multiplier_map(value: Any) -> Dict[str, Any]:
+    return normalize_group_config_map(value)
+
+
+def group_multiplier_value(raw: Any, default: float = 1.0) -> float:
+    if isinstance(raw, dict):
+        raw = raw.get("multiplier")
+    numeric = to_decimal(raw)
+    return float(numeric) if numeric is not None else default
+
+
+def build_station_identifiers(station: Dict[str, Any], include_api: bool = True) -> List[str]:
     identifiers = []
+    identifiers.extend(ensure_list(station.get("station_id")))
     identifiers.extend(ensure_list(station.get("aliases")))
     identifiers.extend(
         ensure_list(
@@ -141,8 +538,9 @@ def build_station_identifiers(station: Dict[str, Any]) -> List[str]:
         )
     )
     identifiers.extend(ensure_list(station.get("website")))
-    identifiers.extend(ensure_list(station.get("api_base_url")))
-    identifiers.extend(ensure_list(station.get("api_url")))
+    if include_api:
+        identifiers.extend(ensure_list(station.get("api_base_url")))
+        identifiers.extend(ensure_list(station.get("api_url")))
     return unique_strings(identifiers)
 
 
@@ -154,6 +552,7 @@ def station_match_score(station: Dict[str, Any], payload: Dict[str, Any]) -> int
     station_aliases = collect_station_match_keys(
         list(station.get("aliases", []))
         + [
+            station.get("station_id"),
             station.get("name"),
             station.get("website"),
             station.get("api_base_url"),
@@ -180,6 +579,65 @@ def find_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> T
     return best_station, best_score
 
 
+def find_station_candidates(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates = []
+    for station in registry.get("stations", []):
+        score = station_match_score(station, station_payload)
+        if score <= 0:
+            continue
+        candidates.append(
+            {
+                "station": station,
+                "score": score,
+                "station_id": station.get("station_id"),
+                "name": station.get("name"),
+                "website": station.get("website"),
+                "aliases": station.get("aliases", []),
+            }
+        )
+    candidates.sort(key=lambda item: (-item["score"], normalize_text(item.get("name") or item.get("station_id")).lower()))
+    return candidates
+
+
+def station_conflict_result(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "needs_confirmation": True,
+        "message": f"我找到 {len(candidates)} 个可能的站点，请回复编号。",
+        "candidates": [
+            {
+                "index": index,
+                "station_id": item.get("station_id"),
+                "name": item.get("name"),
+                "website": item.get("website"),
+                "score": item.get("score"),
+            }
+            for index, item in enumerate(candidates, start=1)
+        ],
+    }
+
+
+def resolve_station_for_write(
+    registry: Dict[str, Any],
+    station_payload: Dict[str, Any],
+    allow_create: bool = False,
+) -> Tuple[Optional[Dict[str, Any]], int, Optional[Dict[str, Any]]]:
+    candidates = find_station_candidates(registry, station_payload)
+    if not candidates:
+        return None, 0, None
+
+    best = candidates[0]
+    top_score = best["score"]
+    ambiguous = [
+        item
+        for item in candidates
+        if item["score"] == top_score
+        or (top_score <= 2 and item["score"] >= top_score - 1)
+    ]
+    if len(ambiguous) > 1 and not allow_create:
+        return None, top_score, station_conflict_result(ambiguous[:5])
+    return best["station"], top_score, None
+
+
 def derive_station_id(station_payload: Dict[str, Any]) -> str:
     candidates = [
         station_payload.get("alias"),
@@ -199,12 +657,22 @@ def derive_station_id(station_payload: Dict[str, Any]) -> str:
         if raw:
             digest = hashlib.md5(raw.encode("utf-8")).hexdigest()[:10]
             return f"station-{digest}"
-    return f"station-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    return f"station-{datetime.now(BEIJING_TZ).strftime('%Y%m%d%H%M%S')}"
 
 
 def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) -> Dict[str, Any]:
     station, score = find_station(registry, station_payload)
     timestamp = now_iso()
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    auto_checked = station_payload_mentions_checked(station_payload)
+    last_check_latency_seconds = normalize_optional_int(first_present_value(station_payload, LAST_CHECK_LATENCY_FIELD_KEYS))
+    admin_notes = normalize_text(first_present_value(station_payload, ADMIN_NOTES_FIELD_KEYS))
+    checked_at_value = normalize_text(station_payload.get("checked_at") or station_payload.get("检测时间"))
     if station is None or score == 0:
         station = {
             "station_id": derive_station_id(station_payload),
@@ -214,22 +682,46 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
                 or station_payload.get("alias")
                 or station_payload.get("site_alias")
             ),
-            "aliases": unique_strings(build_station_identifiers(station_payload)),
+            "aliases": unique_strings(build_station_identifiers(station_payload, include_api=False)),
             "website": normalize_text(station_payload.get("website")),
-            "api_base_url": normalize_text(station_payload.get("api_base_url") or station_payload.get("api_url")),
+            "invite_url": normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接")),
+            "is_checked": detection_flag if detection_flag is not None else auto_checked,
+            "checked_at": checked_at_value or (timestamp if (detection_flag is True or auto_checked) else ""),
+            "recharge_ratio": normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1",
             "group_multipliers": normalize_group_multiplier_map(station_payload.get("group_multipliers")),
             "is_test_data": normalize_bool(station_payload.get("is_test_data")),
             "notes": normalize_text(station_payload.get("notes")),
+            "last_verified_at": normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间")),
+            "stale_after_days": normalize_int(station_payload.get("stale_after_days") or station_payload.get("过期天数"), DEFAULT_STALE_AFTER_DAYS),
+            "expires_at": normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间")),
             "created_at": timestamp,
             "updated_at": timestamp,
         }
+        station["last_check_latency_seconds"] = last_check_latency_seconds
+        station["admin_notes"] = admin_notes
         registry.setdefault("stations", []).append(station)
         return station
 
     station["name"] = normalize_text(station_payload.get("name") or station.get("name"))
     station["website"] = normalize_text(station_payload.get("website") or station.get("website"))
-    station["api_base_url"] = normalize_text(
-        station_payload.get("api_base_url") or station_payload.get("api_url") or station.get("api_base_url")
+    station["invite_url"] = normalize_text(
+        station_payload.get("invite_url") or station_payload.get("邀请链接") or station.get("invite_url")
+    )
+    if detection_flag is not None:
+        station["is_checked"] = detection_flag
+        if detection_flag:
+            station["checked_at"] = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+        else:
+            station["checked_at"] = checked_at_value or ""
+    elif auto_checked:
+        station["is_checked"] = True
+        station["checked_at"] = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+    elif checked_at_value:
+        station["checked_at"] = checked_at_value
+    station["recharge_ratio"] = (
+        normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
+        or normalize_text(station.get("recharge_ratio"))
+        or "1:1"
     )
     incoming_group_multipliers = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
     if incoming_group_multipliers:
@@ -238,7 +730,20 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
         station["group_multipliers"] = merged_group_multipliers
     if "is_test_data" in station_payload:
         station["is_test_data"] = normalize_bool(station_payload.get("is_test_data"))
+    if any(key in station_payload for key in LAST_CHECK_LATENCY_FIELD_KEYS):
+        station["last_check_latency_seconds"] = last_check_latency_seconds
+    if any(key in station_payload for key in ADMIN_NOTES_FIELD_KEYS):
+        station["admin_notes"] = admin_notes
     station["notes"] = normalize_text(station_payload.get("notes") or station.get("notes"))
+    if "last_verified_at" in station_payload or "最后验证时间" in station_payload:
+        station["last_verified_at"] = normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间"))
+    if "stale_after_days" in station_payload or "过期天数" in station_payload:
+        station["stale_after_days"] = normalize_int(
+            station_payload.get("stale_after_days") or station_payload.get("过期天数"),
+            DEFAULT_STALE_AFTER_DAYS,
+        )
+    if "expires_at" in station_payload or "过期时间" in station_payload:
+        station["expires_at"] = normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间"))
     station["aliases"] = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload))
     station["updated_at"] = timestamp
     return station
@@ -246,12 +751,15 @@ def upsert_station(registry: Dict[str, Any], station_payload: Dict[str, Any]) ->
 
 def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or payload)
-    station, score = find_station(registry, station_payload)
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
     if station is None or score == 0:
         raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
 
     changed_fields = []
     timestamp = now_iso()
+    balance_base_url_sync = None
 
     if "name" in station_payload or "station_name" in station_payload:
         value = normalize_text(station_payload.get("name") or station_payload.get("station_name"))
@@ -260,16 +768,56 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             changed_fields.append("name")
 
     if "website" in station_payload:
+        old_website = normalize_text(station.get("website"))
         value = normalize_text(station_payload.get("website"))
         if value and value != station.get("website"):
             station["website"] = value
             changed_fields.append("website")
+            balance_base_url_sync = sync_balance_base_url_by_website(
+                normalize_text(station.get("station_id")),
+                old_website,
+                value,
+            )
 
-    if "api_base_url" in station_payload or "api_url" in station_payload:
-        value = normalize_text(station_payload.get("api_base_url") or station_payload.get("api_url"))
-        if value and value != station.get("api_base_url"):
-            station["api_base_url"] = value
-            changed_fields.append("api_base_url")
+    if "invite_url" in station_payload or "邀请链接" in station_payload:
+        value = normalize_text(station_payload.get("invite_url") or station_payload.get("邀请链接"))
+        if value != normalize_text(station.get("invite_url")):
+            station["invite_url"] = value
+            changed_fields.append("invite_url")
+
+    detection_flag = normalize_detection_flag(
+        station_payload.get("is_checked")
+        or station_payload.get("是否已检测")
+        or station_payload.get("checked")
+        or station_payload.get("检测状态")
+    )
+    auto_checked = station_payload_mentions_checked(station_payload)
+    checked_at_value = normalize_text(station_payload.get("checked_at") or station_payload.get("检测时间"))
+    if detection_flag is not None:
+        if detection_flag != bool(station.get("is_checked")):
+            station["is_checked"] = detection_flag
+            changed_fields.append("is_checked")
+        target_checked_at = checked_at_value or (timestamp if detection_flag else "")
+        if normalize_text(station.get("checked_at")) != target_checked_at:
+            station["checked_at"] = target_checked_at
+            changed_fields.append("checked_at")
+    elif auto_checked:
+        if not bool(station.get("is_checked")):
+            station["is_checked"] = True
+            changed_fields.append("is_checked")
+        target_checked_at = checked_at_value or normalize_text(station.get("checked_at")) or timestamp
+        if normalize_text(station.get("checked_at")) != target_checked_at:
+            station["checked_at"] = target_checked_at
+            changed_fields.append("checked_at")
+    elif checked_at_value and normalize_text(station.get("checked_at")) != checked_at_value:
+        station["checked_at"] = checked_at_value
+        changed_fields.append("checked_at")
+
+    if "recharge_ratio" in station_payload or "充值比" in station_payload:
+        value = normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比")) or "1:1"
+        if value != resolve_station_recharge_ratio(station):
+            station["recharge_ratio"] = value
+            changed_fields.append("recharge_ratio")
 
     if "group_multipliers" in station_payload:
         value = normalize_group_multiplier_map(station_payload.get("group_multipliers"))
@@ -283,22 +831,57 @@ def update_station_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> 
             station["is_test_data"] = value
             changed_fields.append("is_test_data")
 
+    if any(key in station_payload for key in LAST_CHECK_LATENCY_FIELD_KEYS):
+        value = normalize_optional_int(first_present_value(station_payload, LAST_CHECK_LATENCY_FIELD_KEYS))
+        if value != station.get("last_check_latency_seconds"):
+            station["last_check_latency_seconds"] = value
+            changed_fields.append("last_check_latency_seconds")
+
+    if any(key in station_payload for key in ADMIN_NOTES_FIELD_KEYS):
+        value = normalize_text(first_present_value(station_payload, ADMIN_NOTES_FIELD_KEYS))
+        if value != normalize_text(station.get("admin_notes")):
+            station["admin_notes"] = value
+            changed_fields.append("admin_notes")
+
     if "notes" in station_payload:
         value = normalize_text(station_payload.get("notes"))
         if value != station.get("notes", ""):
             station["notes"] = value
             changed_fields.append("notes")
 
-    new_aliases = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload))
+    if "last_verified_at" in station_payload or "最后验证时间" in station_payload:
+        value = normalize_text(station_payload.get("last_verified_at") or station_payload.get("最后验证时间"))
+        if value != normalize_text(station.get("last_verified_at")):
+            station["last_verified_at"] = value
+            changed_fields.append("last_verified_at")
+
+    if "stale_after_days" in station_payload or "过期天数" in station_payload:
+        value = normalize_int(station_payload.get("stale_after_days") or station_payload.get("过期天数"), DEFAULT_STALE_AFTER_DAYS)
+        if value != resolve_stale_after_days(station, {}):
+            station["stale_after_days"] = value
+            changed_fields.append("stale_after_days")
+
+    if "expires_at" in station_payload or "过期时间" in station_payload:
+        value = normalize_text(station_payload.get("expires_at") or station_payload.get("过期时间"))
+        if value != normalize_text(station.get("expires_at")):
+            station["expires_at"] = value
+            changed_fields.append("expires_at")
+
+    new_aliases = unique_strings(station.get("aliases", []) + build_station_identifiers(station_payload, include_api=False))
     if new_aliases != station.get("aliases", []):
         station["aliases"] = new_aliases
         changed_fields.append("aliases")
 
     station["updated_at"] = timestamp
+    if "recharge_ratio" in changed_fields:
+        recompute_station_records(registry, station, timestamp)
     save_registry(registry)
     return {
-        "station": station,
+        "action": "update-station",
         "changed_fields": unique_strings(changed_fields),
+        "summary": build_write_summary(station),
+        "station": station,
+        "balance_base_url_sync": balance_base_url_sync,
     }
 
 
@@ -351,8 +934,529 @@ def infer_pricing_defaults(
     return matched_records[0]
 
 
+def build_record_pricing_payload(station: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "model_name": record.get("model_name"),
+        "group": record.get("group"),
+        "input_price": record.get("input_price"),
+        "output_price": record.get("output_price"),
+        "cache_price": record.get("cache_price"),
+        "cache_read_price": record.get("cache_read_price"),
+        "cache_write_price": record.get("cache_write_price"),
+        "group_note": record.get("group_note"),
+        "multiplier": record.get("multiplier"),
+        "recharge_ratio": resolve_station_recharge_ratio(station, record),
+        "sale_price": record.get("sale_price"),
+    }
+
+
+def recompute_station_records(registry: Dict[str, Any], station: Dict[str, Any], timestamp: Optional[str] = None) -> None:
+    station_id = station.get("station_id")
+    if not station_id:
+        return
+    updated_at = timestamp or now_iso()
+    for index, record in enumerate(registry.get("price_records", [])):
+        if record.get("station_id") != station_id:
+            continue
+        refreshed_record = deepcopy(record)
+        refreshed_record["recharge_ratio"] = resolve_station_recharge_ratio(station, record)
+        refreshed_record["computed"] = compute(build_record_pricing_payload(station, refreshed_record))
+        refreshed_record["updated_at"] = updated_at
+        append_price_history(record, refreshed_record, "station_recharge_ratio_changed")
+        registry["price_records"][index] = refreshed_record
+
+
+def history_value(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {field: deepcopy(record.get(field)) for field in PRICE_HISTORY_FIELDS if field in record}
+
+
+def price_record_changed(old_record: Dict[str, Any], new_record: Dict[str, Any]) -> bool:
+    return history_value(old_record) != history_value(new_record)
+
+
+def record_summary_price(record: Dict[str, Any]) -> Optional[Any]:
+    computed = record.get("computed") if isinstance(record.get("computed"), dict) else {}
+    return computed.get("summary", {}).get("rmb_per_m") if isinstance(computed.get("summary"), dict) else None
+
+
+def calculate_change_percent(old_record: Dict[str, Any], new_record: Dict[str, Any]) -> Optional[str]:
+    old_price = to_decimal(record_summary_price(old_record))
+    new_price = to_decimal(record_summary_price(new_record))
+    if old_price is None or new_price is None or old_price == 0:
+        return None
+    percent = (new_price - old_price) / old_price * 100
+    return format_decimal(percent)
+
+
+def append_price_history(
+    old_record: Dict[str, Any],
+    new_record: Dict[str, Any],
+    source: str,
+    changed_fields: Optional[List[str]] = None,
+) -> None:
+    if not price_record_changed(old_record, new_record):
+        return
+    resolved_changed_fields = changed_fields or [
+        field
+        for field in PRICE_HISTORY_FIELDS
+        if old_record.get(field) != new_record.get(field)
+    ]
+    if not any(field in PRICE_HISTORY_CHANGE_FIELDS for field in resolved_changed_fields):
+        return
+    history = load_history()
+    history.setdefault("version", 1)
+    history.setdefault("changes", []).append(
+        {
+            "changed_at": now_iso(),
+            "source": source,
+            "record_id": new_record.get("record_id") or old_record.get("record_id"),
+            "station_id": new_record.get("station_id") or old_record.get("station_id"),
+            "model_name": new_record.get("model_name") or old_record.get("model_name"),
+            "group": new_record.get("group") or old_record.get("group"),
+            "changed_fields": resolved_changed_fields,
+            "old": history_value(old_record),
+            "new": history_value(new_record),
+            "summary_change_percent": calculate_change_percent(old_record, new_record),
+        }
+    )
+    save_history(history)
+
+
+def build_write_summary(station: Dict[str, Any], record: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    summary = {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "website": station.get("website"),
+        "invite_url": station.get("invite_url"),
+        "is_checked": station.get("is_checked"),
+        "checked_at": station.get("checked_at"),
+        "last_check_latency_seconds": station.get("last_check_latency_seconds"),
+        "recharge_ratio": station.get("recharge_ratio"),
+        "admin_notes": station.get("admin_notes"),
+        "notes": station.get("notes"),
+        "updated_at": station.get("updated_at"),
+    }
+    if record is not None:
+        summary["record"] = {
+            "record_id": record.get("record_id"),
+            "model_name": record.get("model_name"),
+            "group": record.get("group"),
+            "multiplier": record.get("multiplier"),
+            "summary_rmb_per_m": (((record.get("computed") or {}).get("summary") or {}).get("rmb_per_m")),
+        }
+    return summary
+
+
+def preferred_probe_model(model_names: List[str]) -> str:
+    cleaned = [normalize_text(model_name) for model_name in model_names if normalize_text(model_name)]
+    for model_name in cleaned:
+        if model_name == "gpt-5.4":
+            return model_name
+    return cleaned[0] if cleaned else "gpt-5.4"
+
+
+def resolve_probe_model_names(raw_entry: Dict[str, Any], default_model: str) -> Tuple[str, str]:
+    legacy_model = normalize_text(raw_entry.get("model") or raw_entry.get("model_name") or raw_entry.get("probe_model"))
+    canonical_model = normalize_text(
+        raw_entry.get("canonical_model_name")
+        or raw_entry.get("canonical_model")
+        or raw_entry.get("标准模型名")
+        or legacy_model
+        or default_model
+    )
+    request_model = normalize_text(
+        raw_entry.get("request_model_name")
+        or raw_entry.get("request_model")
+        or raw_entry.get("请求模型名")
+        or legacy_model
+        or canonical_model
+        or default_model
+    )
+    return canonical_model, request_model
+
+
+def build_probe_config_id(station_id: str, name: str, api_base_url: str, canonical_model_name: str, group_name: str) -> str:
+    stable_key = "|".join(
+        [
+            normalize_text(station_id),
+            normalize_text(api_base_url) or normalize_text(name),
+            normalize_text(canonical_model_name),
+            normalized_group(group_name),
+        ]
+    )
+    return "probe_" + hashlib.md5(stable_key.encode("utf-8")).hexdigest()
+
+
+def normalize_probe_api_entry(
+    station: Dict[str, Any],
+    raw_entry: Dict[str, Any],
+    default_model: str,
+) -> Dict[str, Any]:
+    name = normalize_text(raw_entry.get("name") or raw_entry.get("api_name") or raw_entry.get("名称")) or "默认API"
+    api_base_url = normalize_url_root(raw_entry.get("api_base_url") or raw_entry.get("api_url") or raw_entry.get("url"))
+    canonical_model_name, request_model_name = resolve_probe_model_names(raw_entry, default_model)
+    group_name = normalized_group(
+        raw_entry.get("group_name")
+        or raw_entry.get("group")
+        or raw_entry.get("分组")
+        or raw_entry.get("价格分组")
+    )
+    config_id = build_probe_config_id(station.get("station_id") or "", name, api_base_url, canonical_model_name, "")
+    return {
+        "config_id": config_id,
+        "station_id": station.get("station_id") or "",
+        "name": name,
+        "api_base_url": api_base_url,
+        "chat_completions_path": normalize_text(raw_entry.get("chat_completions_path")) or "/v1/chat/completions",
+        "responses_path": normalize_text(raw_entry.get("responses_path")) or "/v1/responses",
+        "responses_compact_path": normalize_text(raw_entry.get("responses_compact_path")) or "/v1/responses/compact",
+        "api_key": normalize_text(raw_entry.get("api_key") or raw_entry.get("key")),
+        "canonical_model_name": canonical_model_name,
+        "request_model_name": request_model_name,
+        "group_name": group_name,
+        "is_enabled": normalize_optional_bool(raw_entry.get("is_enabled"), True),
+        "failure_count": normalize_int(raw_entry.get("failure_count") or raw_entry.get("失败次数"), 0),
+        "last_success_endpoint_type": normalize_text(raw_entry.get("last_success_endpoint_type")),
+        "notes": normalize_text(raw_entry.get("notes")),
+    }
+
+
+def probe_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_api_key: Any = "") -> Dict[str, Any]:
+    return {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "action": saved.get("action"),
+        "name": saved.get("name"),
+        "api_base_url": saved.get("api_base_url"),
+        "canonical_model_name": saved.get("canonical_model_name"),
+        "request_model_name": saved.get("request_model_name") or saved.get("canonical_model_name"),
+        "api_key_masked": mask_api_key(raw_api_key),
+        "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
+        "config_id": saved.get("config_id"),
+    }
+
+
+def resolve_probe_entries(payload: Dict[str, Any], default_model: str) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    station_payload = payload.get("station") or {}
+    pricing_payload = payload.get("pricing") or {}
+    default_group = (
+        pricing_payload.get("group")
+        or pricing_payload.get("分组")
+        or payload.get("group_name")
+        or payload.get("group")
+        or payload.get("分组")
+        or "default"
+    )
+
+    probe_entries = payload.get("probe_apis")
+    if isinstance(probe_entries, list):
+        for item in probe_entries:
+            if isinstance(item, dict):
+                entries.append(item)
+
+    single_probe_fields = {
+        "name": payload.get("name") or payload.get("api_name") or payload.get("probe_api_name"),
+        "api_base_url": payload.get("api_base_url") or payload.get("api_url") or payload.get("url"),
+        "api_key": payload.get("api_key") or payload.get("key"),
+        "model": payload.get("model") or payload.get("probe_model"),
+        "canonical_model_name": payload.get("canonical_model_name") or payload.get("canonical_model") or payload.get("标准模型名"),
+        "request_model_name": payload.get("request_model_name") or payload.get("request_model") or payload.get("请求模型名"),
+        "group_name": payload.get("group_name") or payload.get("group") or payload.get("分组") or payload.get("价格分组"),
+        "notes": payload.get("notes"),
+        "is_enabled": payload.get("is_enabled"),
+        "failure_count": payload.get("failure_count") or payload.get("失败次数"),
+        "chat_completions_path": payload.get("chat_completions_path"),
+        "responses_path": payload.get("responses_path"),
+        "responses_compact_path": payload.get("responses_compact_path"),
+    }
+    if any(value not in (None, "") for value in single_probe_fields.values()):
+        entries.append(single_probe_fields)
+
+    station_probe_fields = {
+        "name": station_payload.get("probe_api_name"),
+        "api_base_url": station_payload.get("api_base_url") or station_payload.get("probe_api_base_url"),
+        "api_key": station_payload.get("api_key") or station_payload.get("probe_api_key"),
+        "model": station_payload.get("probe_model"),
+        "canonical_model_name": station_payload.get("canonical_model_name") or station_payload.get("canonical_model") or station_payload.get("标准模型名"),
+        "request_model_name": station_payload.get("request_model_name") or station_payload.get("request_model") or station_payload.get("请求模型名"),
+        "group_name": station_payload.get("probe_group_name") or station_payload.get("group_name") or station_payload.get("group") or station_payload.get("分组"),
+        "notes": station_payload.get("probe_notes"),
+        "is_enabled": station_payload.get("probe_is_enabled"),
+        "failure_count": station_payload.get("probe_failure_count") or station_payload.get("failure_count") or station_payload.get("失败次数"),
+    }
+    if any(value not in (None, "") for value in station_probe_fields.values()):
+        entries.append(station_probe_fields)
+
+    if not entries:
+        entries.append({"name": "默认API", "api_base_url": "", "api_key": "", "canonical_model_name": default_model, "request_model_name": default_model, "group_name": default_group})
+
+    return entries
+
+
+def payload_mentions_probe_api(payload: Dict[str, Any]) -> bool:
+    station_payload = payload.get("station") or {}
+    if isinstance(payload.get("probe_apis"), list):
+        return True
+    probe_keys = {
+        "name",
+        "api_name",
+        "probe_api_name",
+        "api_base_url",
+        "api_url",
+        "url",
+        "api_key",
+        "key",
+        "model",
+        "probe_model",
+        "canonical_model_name",
+        "canonical_model",
+        "request_model_name",
+        "request_model",
+        "group_name",
+        "group",
+        "分组",
+        "价格分组",
+        "标准模型名",
+        "请求模型名",
+        "is_enabled",
+        "failure_count",
+        "失败次数",
+        "chat_completions_path",
+        "responses_path",
+        "responses_compact_path",
+    }
+    station_probe_keys = {
+        "probe_api_name",
+        "api_base_url",
+        "probe_api_base_url",
+        "api_key",
+        "probe_api_key",
+        "probe_model",
+        "canonical_model_name",
+        "canonical_model",
+        "request_model_name",
+        "request_model",
+        "probe_group_name",
+        "group_name",
+        "group",
+        "分组",
+        "标准模型名",
+        "请求模型名",
+        "probe_notes",
+        "probe_is_enabled",
+        "probe_failure_count",
+        "failure_count",
+        "失败次数",
+    }
+
+
+def apply_probe_group_api_keys(station: Dict[str, Any], configs: List[Dict[str, Any]]) -> None:
+    if not configs:
+        return
+
+    group_configs = dict(station.get("group_multipliers") or {})
+    changed = False
+    for config in configs:
+        api_key = normalize_text(config.get("api_key"))
+        if not api_key:
+            continue
+        group = normalized_group(config.get("group_name"))
+        current = group_configs.get(group)
+        if isinstance(current, dict):
+            next_config = dict(current)
+        else:
+            next_config = {
+                "multiplier": group_multiplier_value(current),
+            }
+        next_config["api_key"] = api_key
+        if config.get("failure_count") not in (None, ""):
+            next_config["failure_count"] = normalize_int(config.get("failure_count"), 0)
+        group_configs[group] = next_config
+        changed = True
+
+    if changed:
+        station["group_multipliers"] = group_configs
+
+
+def upsert_probe_configs_for_station(
+    station: Dict[str, Any],
+    payload: Dict[str, Any],
+    default_model: str,
+) -> List[Dict[str, Any]]:
+    # 价格记录补分组时不要给已有探测配置的站点追加空的默认 API。
+    if not payload_mentions_probe_api(payload) and has_probe_api_config(station.get("station_id") or ""):
+        return []
+
+    normalized_configs = [
+        normalize_probe_api_entry(station, entry, default_model)
+        for entry in resolve_probe_entries(payload, default_model)
+    ]
+    apply_probe_group_api_keys(station, normalized_configs)
+    saved_configs = save_probe_api_configs(normalized_configs)
+    summaries: List[Dict[str, Any]] = []
+    for normalized, saved in zip(normalized_configs, saved_configs):
+        summaries.append(probe_summary_item(station, saved, normalized.get("api_key")))
+    return summaries
+
+
+def normalize_balance_provider_type(value: Any) -> str:
+    text = normalize_text(value).lower()
+    if text in {"newapi"}:
+        return "newapi"
+    if text in {"sub2api"}:
+        return "sub2api"
+    if text in {"自定义", "custom", "custom_json_path"}:
+        return "custom_json_path"
+    return ""
+
+
+def build_balance_config_id(station_id: str) -> str:
+    return "balance_" + hashlib.md5(("balance:" + normalize_text(station_id)).encode("utf-8")).hexdigest()[:24]
+
+
+def normalize_balance_config_entry(station: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = payload.get("station") or {}
+    provider_type = normalize_balance_provider_type(
+        payload.get("provider_type")
+        or payload.get("项目类型")
+        or payload.get("project_type")
+        or station_payload.get("provider_type")
+        or station_payload.get("项目类型")
+        or station_payload.get("project_type")
+    )
+    base_url = normalize_url_root(
+        payload.get("balance_base_url")
+        or payload.get("base_url")
+        or payload.get("余额 Base URL")
+        or station_payload.get("balance_base_url")
+        or station_payload.get("base_url")
+        or station_payload.get("余额 Base URL")
+        or station.get("website")
+    )
+    access_token = normalize_text(
+        payload.get("access_token")
+        or payload.get("Access Token")
+        or station_payload.get("access_token")
+        or station_payload.get("Access Token")
+    )
+    user_id = normalize_text(
+        payload.get("user_id")
+        or payload.get("User ID")
+        or station_payload.get("user_id")
+        or station_payload.get("User ID")
+    )
+    is_enabled = normalize_optional_bool(
+        payload.get("balance_is_enabled")
+        if "balance_is_enabled" in payload
+        else (
+            payload.get("is_enabled")
+            if "is_enabled" in payload
+            else (
+                payload.get("启用状态")
+                if "启用状态" in payload
+                else (
+                    station_payload.get("balance_is_enabled")
+                    if "balance_is_enabled" in station_payload
+                    else (
+                        station_payload.get("is_enabled")
+                        if "is_enabled" in station_payload
+                        else station_payload.get("启用状态")
+                    )
+                )
+            )
+        ),
+        False,
+    )
+    notes = normalize_text(
+        payload.get("balance_notes")
+        or payload.get("余额备注")
+        or station_payload.get("balance_notes")
+        or station_payload.get("余额备注")
+    ) or "初始化生成，需手动补充 provider_type/凭证/字段路径后启用"
+    return {
+        "config_id": build_balance_config_id(station.get("station_id") or ""),
+        "station_id": station.get("station_id") or "",
+        "provider_type": provider_type,
+        "base_url": base_url,
+        "access_token": access_token,
+        "user_id": user_id,
+        "method": "GET",
+        "path": "",
+        "headers_json": None,
+        "remaining_path": "",
+        "used_path": "",
+        "total_path": "",
+        "unit_path": "",
+        "plan_name_path": "",
+        "is_enabled": is_enabled,
+        "notes": notes,
+    }
+
+
+def payload_mentions_balance_config(payload: Dict[str, Any]) -> bool:
+    station_payload = payload.get("station") or {}
+    keys = {
+        "provider_type",
+        "项目类型",
+        "project_type",
+        "balance_base_url",
+        "base_url",
+        "余额 Base URL",
+        "access_token",
+        "Access Token",
+        "user_id",
+        "User ID",
+        "balance_is_enabled",
+        "启用状态",
+        "balance_notes",
+        "余额备注",
+    }
+    return any(key in payload for key in keys) or any(key in station_payload for key in keys)
+
+
+def balance_summary_item(station: Dict[str, Any], saved: Dict[str, Any], raw_access_token: Any = "") -> Dict[str, Any]:
+    return {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "action": saved.get("action"),
+        "config_id": saved.get("config_id"),
+        "provider_type": saved.get("provider_type"),
+        "base_url": saved.get("base_url"),
+        "is_enabled": "启用" if saved.get("is_enabled") else "禁用",
+        "access_token_masked": mask_secret(raw_access_token),
+        "user_id": saved.get("user_id"),
+    }
+
+
+def ensure_balance_config_for_station(station: Dict[str, Any], payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    station_id = normalize_text(station.get("station_id"))
+    if not station_id:
+        return []
+    normalized = normalize_balance_config_entry(station, payload)
+    if has_balance_config(station_id):
+        if payload_mentions_balance_config(payload):
+            saved = upsert_balance_config(normalized)
+            return [balance_summary_item(station, saved, normalized.get("access_token"))]
+        return [{
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "action": "skipped_existing",
+            "config_id": "",
+            "provider_type": "",
+            "base_url": normalize_text(station.get("website")),
+            "is_enabled": "禁用",
+            "access_token_masked": "",
+            "user_id": "",
+        }]
+
+    saved = save_balance_config(normalized)
+    return [balance_summary_item(station, saved, normalized.get("access_token"))]
+
+
 def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: str) -> Optional[Dict[str, Any]]:
-    computed = record.get("computed", {})
+    station = next((item for item in registry.get("stations", []) if item.get("station_id") == record.get("station_id")), {})
+    computed = compute(build_record_pricing_payload(station, record))
     dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions", {}), dict) else {}
     input_dimension = dimensions.get("input") or {}
     output_dimension = dimensions.get("output") or {}
@@ -372,21 +1476,132 @@ def build_rank_item(registry: Dict[str, Any], record: Dict[str, Any], metric: st
     if numeric is None:
         return None
 
-    station = next((item for item in registry.get("stations", []) if item.get("station_id") == record.get("station_id")), {})
     return {
+        "record_id": record.get("record_id"),
         "station_id": record.get("station_id"),
         "station_name": station.get("name") or record.get("station_id"),
         "aliases": station.get("aliases", []),
         "website": station.get("website"),
-        "api_base_url": station.get("api_base_url"),
         "model_name": record.get("model_name"),
         "group": record.get("group"),
         "metric": metric,
         "value": format_decimal(numeric),
         "_sort": numeric,
         "copy_text": computed.get("copy_text"),
+        "confidence_score": confidence_label(record_confidence(record, station)[0]),
+        "confidence_reason": record_confidence(record, station)[1],
+        "last_verified_at": record_verified_at(station, record),
+        "stale_after_days": resolve_stale_after_days(station, record),
         "updated_at": record.get("updated_at"),
     }
+
+
+def record_search_fields(station: Dict[str, Any], record: Dict[str, Any]) -> List[str]:
+    values = [
+        station.get("station_id"),
+        station.get("name"),
+        station.get("website"),
+        station.get("api_base_url"),
+        station.get("api_url"),
+        station.get("notes"),
+        station.get("recharge_ratio"),
+        record.get("model_name"),
+        record.get("group"),
+        record.get("group_note"),
+    ]
+    values.extend(station.get("aliases") or [])
+    values.extend(ensure_list(record.get("tags")))
+    return [normalize_text(value) for value in values if normalize_text(value)]
+
+
+def record_matches_terms(station: Dict[str, Any], record: Dict[str, Any], terms: List[str], require_all: bool = True) -> bool:
+    normalized_terms = [normalize_text(term) for term in terms if normalize_text(term)]
+    if not normalized_terms:
+        return True
+    fields = record_search_fields(station, record)
+    matcher = all if require_all else any
+    return matcher(any(text_matches_query(term, field) for field in fields) for term in normalized_terms)
+
+
+def item_explain_parts(station: Dict[str, Any], record: Dict[str, Any], metric: str, computed: Dict[str, Any]) -> List[str]:
+    parts = []
+    multiplier = to_decimal(computed.get("multiplier") or record.get("multiplier"))
+    if multiplier is not None and multiplier < 1:
+        parts.append(f"倍率低（{trim_decimal_text(format_decimal(multiplier))}）")
+
+    recharge_ratio = resolve_station_recharge_ratio(station, record)
+    ratio_parts = re.split(r"\s*:\s*", recharge_ratio)
+    if len(ratio_parts) == 2:
+        left = to_decimal(ratio_parts[0])
+        right = to_decimal(ratio_parts[1])
+        if left is not None and right is not None and left > 0:
+            credit_per_rmb = right / left
+            if credit_per_rmb > 1:
+                parts.append(f"充值比高（{recharge_ratio}）")
+
+    group_note = normalize_text(record.get("group_note"))
+    group = normalize_text(record.get("group"))
+    if text_matches_query("限时", group) or text_matches_query("限时", group_note):
+        parts.append("限时特价")
+    if text_matches_query("特价", group) or text_matches_query("特价", group_note):
+        parts.append("特价分组")
+
+    dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
+    input_price = to_decimal((dimensions.get("input") or {}).get("rmb_per_m"))
+    cache_price = to_decimal((dimensions.get("cache_read") or {}).get("rmb_per_m"))
+    if cache_price is not None and input_price is not None and input_price > 0 and cache_price < input_price / 5:
+        parts.append("缓存读取价低")
+    if metric == "output_rmb_per_m":
+        parts.append("按输出价排序")
+    elif metric == "input_rmb_per_m":
+        parts.append("按输入价排序")
+    elif metric == "cache_read_rmb_per_m":
+        parts.append("按缓存读取价排序")
+    return unique_strings(parts)[:3]
+
+
+def median_decimal(values: List[Any]) -> Optional[Any]:
+    decimals = sorted(value for value in (to_decimal(item) for item in values) if value is not None)
+    if not decimals:
+        return None
+    middle = len(decimals) // 2
+    if len(decimals) % 2:
+        return decimals[middle]
+    return (decimals[middle - 1] + decimals[middle]) / 2
+
+
+def model_summary_medians(registry: Dict[str, Any]) -> Dict[str, Any]:
+    values_by_model: Dict[str, List[Any]] = {}
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    for record in registry.get("price_records", []):
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        try:
+            computed = compute(build_record_pricing_payload(station, record))
+        except Exception:
+            continue
+        model_key = normalize_key(record.get("model_name"))
+        summary = computed.get("summary", {}).get("rmb_per_m")
+        if model_key and to_decimal(summary) is not None:
+            values_by_model.setdefault(model_key, []).append(summary)
+    return {
+        model_key: median_decimal(values)
+        for model_key, values in values_by_model.items()
+        if median_decimal(values) is not None
+    }
+
+
+def anomaly_low_price_warnings(record: Dict[str, Any], computed: Dict[str, Any], medians: Dict[str, Any]) -> List[str]:
+    model_key = normalize_key(record.get("model_name"))
+    median_value = to_decimal(medians.get(model_key))
+    current = to_decimal(computed.get("summary", {}).get("rmb_per_m"))
+    if median_value is None or current is None or median_value <= 0:
+        return []
+    if current <= median_value * to_decimal(ANOMALY_LOW_RATIO):
+        return ["价格显著低于同模型中位数，请确认是否为倍率后价格或限时活动"]
+    return []
 
 
 def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
@@ -394,16 +1609,39 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
     group = normalize_text(query.get("group"))
     metric = normalize_text(query.get("sort_by") or query.get("metric") or "summary_rmb_per_m")
     direction = normalize_text(query.get("direction") or "asc").lower()
+    include_terms = ensure_list(query.get("include_terms") or query.get("include") or query.get("包含"))
+    exclude_terms = ensure_list(query.get("exclude_terms") or query.get("exclude") or query.get("排除"))
+    min_confidence = normalize_confidence(query.get("min_confidence") or query.get("最低可信度"))
+    medians = model_summary_medians(registry)
 
     matched = []
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
     for record in registry.get("price_records", []):
         if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
             continue
         if group and normalize_key(record.get("group")) != normalize_key(group):
             continue
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        if include_terms and not record_matches_terms(station, record, include_terms, require_all=True):
+            continue
+        if exclude_terms and record_matches_terms(station, record, exclude_terms, require_all=False):
+            continue
+        confidence_score, _ = record_confidence(record, station)
+        if min_confidence is not None and confidence_score < min_confidence:
+            continue
         item = build_rank_item(registry, record, metric)
         if item is None:
             continue
+        computed = compute(build_record_pricing_payload(station, record))
+        item["cheap_reasons"] = item_explain_parts(station, record, metric, computed)
+        item["warnings"] = record_health_warnings(
+            station,
+            record,
+            anomaly_low_price_warnings(record, computed, medians),
+        )
         matched.append(item)
 
     reverse = direction == "desc"
@@ -417,9 +1655,353 @@ def rank_records(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, A
             "group": group or None,
             "metric": metric,
             "direction": direction,
+            "include_terms": include_terms,
+            "exclude_terms": exclude_terms,
+            "min_confidence": min_confidence,
         },
         "count": len(matched),
         "items": matched,
+    }
+
+
+def normalize_model_alias(value: Any) -> str:
+    return canonical_model_name(value)
+
+
+def extract_quick_limit(text: str, default: int = 10) -> int:
+    patterns = [
+        r"(?:top|Top|TOP)\s*(\d+)",
+        r"前\s*(\d+)",
+        r"最便宜\D{0,8}(\d+)\s*(?:个|家|条|站点)?",
+        r"(\d+)\s*(?:个|家|条)\s*(?:站点)?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        try:
+            value = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return default
+
+
+def extract_quick_model(text: str) -> str:
+    lowered = text.lower()
+    candidates = [
+        r"gpt[\s\-_]*5[.\-]?4[\s\-_]*mini",
+        r"5[.\-]?4[\s\-_]*mini",
+        r"gpt[\s\-_]*5[.\-]?5",
+        r"gpt[\s\-_]*5[.\-]?4",
+        r"\b5[.\-]?5\b",
+        r"\b5[.\-]?4\b",
+        r"\b55\b",
+        r"\b54\b",
+        r"mini",
+    ]
+    for pattern in candidates:
+        match = re.search(pattern, lowered)
+        if match:
+            return normalize_model_alias(match.group(0))
+    return ""
+
+
+def extract_quick_metric(text: str) -> str:
+    if re.search(r"缓存写|缓存创建|cache\s*write", text, re.I):
+        return "cache_write_rmb_per_m"
+    if re.search(r"缓存|cache", text, re.I):
+        return "cache_read_rmb_per_m"
+    if re.search(r"输出|补全|output|completion", text, re.I):
+        return "output_rmb_per_m"
+    if re.search(r"输入|input|prompt", text, re.I):
+        return "input_rmb_per_m"
+    return "summary_rmb_per_m"
+
+
+def extract_quick_group(text: str) -> str:
+    explicit = re.search(r"(?:分组|group)\s*[:：]?\s*([A-Za-z0-9_\-\u4e00-\u9fff]+)", text, re.I)
+    if explicit:
+        return explicit.group(1)
+
+    known_groups = [
+        "default",
+        "free",
+        "plus",
+        "pro",
+        "vip",
+        "svip",
+        "codex",
+        "code-plus",
+        "code-pro",
+        "限时特价",
+        "默认",
+    ]
+    lowered = text.lower()
+    for group in known_groups:
+        if group.lower() in {"pro", "plus"} and re.search(rf"{re.escape(group)}\s*号池", lowered, re.I):
+            continue
+        if re.search(rf"(?:排除|不要|不看|过滤掉|剔除)[^，。,；;]*{re.escape(group)}", text, re.I):
+            continue
+        if group.lower() in lowered:
+            return group
+    return ""
+
+
+def split_filter_terms(text: str) -> List[str]:
+    terms = []
+    for part in re.split(r"[,，、/]|和|且|并且", normalize_text(text)):
+        term = normalize_text(part)
+        term = re.sub(r"^(?:有|带|支持|包含|含|是)\s*", "", term)
+        term = re.sub(r"\s*(?:的)?(?:站点|中转站|分组|记录)$", "", term)
+        if term:
+            terms.append(term)
+    return unique_strings(terms)
+
+
+def extract_quick_filter_terms(text: str) -> Tuple[List[str], List[str]]:
+    include_terms: List[str] = []
+    exclude_terms: List[str] = []
+
+    for pattern, target in [
+        (r"(?:排除|不要|不看|过滤掉|剔除)\s*([^，。,；;]+)", exclude_terms),
+        (r"(?:只看|仅看|筛选|包含|含有)\s*([^，。,；;]+)", include_terms),
+    ]:
+        for match in re.finditer(pattern, text, re.I):
+            target.extend(split_filter_terms(match.group(1)))
+
+    descriptor_terms = [
+        "pro号池",
+        "plus号池",
+        "售后群",
+        "QQ群",
+        "微信群",
+        "v2ex",
+        "gpt-image",
+        "支持图片",
+        "限时特价",
+        "特价",
+        "不稳定",
+        "稳定",
+    ]
+    lowered = text.lower()
+    for term in descriptor_terms:
+        if term.lower() not in lowered:
+            continue
+        if term == "稳定" and "不稳定" in lowered:
+            continue
+        if any(text_matches_query(term, excluded) for excluded in exclude_terms):
+            continue
+        if re.search(rf"(?:排除|不要|不看|过滤掉|剔除)\s*{re.escape(term)}", text, re.I):
+            exclude_terms.append(term)
+        elif not any(text_matches_query(term, included) for included in include_terms):
+            include_terms.append(term)
+
+    return unique_strings(include_terms), unique_strings(exclude_terms)
+
+
+def extract_quick_min_confidence(text: str) -> Optional[float]:
+    explicit = re.search(r"(?:可信度|confidence)\s*(?:>=|大于|至少|不低于|:|：)?\s*(\d+(?:\.\d+)?%?)", text, re.I)
+    if explicit:
+        return normalize_confidence(explicit.group(1))
+    if re.search(r"排除低可信|不要低可信|过滤低可信|只看可信|高可信|可信价格", text, re.I):
+        return LOW_CONFIDENCE_THRESHOLD
+    return None
+
+
+def is_quick_rank_query(text: str, payload: Dict[str, Any]) -> bool:
+    if payload.get("mode") == "rank":
+        return True
+    if payload.get("model_name") or payload.get("模型名称"):
+        return True
+    has_rank_word = bool(re.search(r"最便宜|排行|排名|top|前\s*\d+|便宜|最低", text, re.I))
+    return has_rank_word and bool(extract_quick_model(text))
+
+
+def build_quick_rank_query(payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = normalize_text(payload.get("query") or payload.get("q") or payload.get("keyword"))
+    model_name = normalize_model_alias(payload.get("model_name") or payload.get("模型名称")) or extract_quick_model(text)
+    group = normalize_text(payload.get("group") or payload.get("分组")) or extract_quick_group(text)
+    metric = normalize_text(payload.get("sort_by") or payload.get("metric")) or extract_quick_metric(text)
+    direction = normalize_text(payload.get("direction") or "asc").lower()
+    limit = payload.get("limit") or extract_quick_limit(text, default=10)
+    detected_include_terms, detected_exclude_terms = extract_quick_filter_terms(text)
+    include_terms = ensure_list(payload.get("include_terms") or payload.get("include") or payload.get("包含")) or detected_include_terms
+    exclude_terms = ensure_list(payload.get("exclude_terms") or payload.get("exclude") or payload.get("排除")) or detected_exclude_terms
+    min_confidence = normalize_confidence(payload.get("min_confidence") or payload.get("最低可信度"))
+    if min_confidence is None:
+        min_confidence = extract_quick_min_confidence(text)
+    return {
+        "model_name": model_name,
+        "group": group,
+        "sort_by": metric,
+        "direction": direction,
+        "limit": limit,
+        "include_terms": include_terms,
+        "exclude_terms": exclude_terms,
+        "min_confidence": min_confidence,
+    }
+
+
+def clean_quick_search_text(text: str) -> str:
+    cleaned = normalize_text(text)
+    cleaned = re.sub(r"^(?:查|搜索|检索|找|查看|列出|帮我查|帮我找)\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"^(?:站点|中转站|官网|备注|分组备注|关键词)\s*[:：]?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*(?:的)?(?:站点|中转站|列表)$", "", cleaned, flags=re.I)
+    return cleaned.strip()
+
+
+def station_search_fields(station: Dict[str, Any], records: List[Dict[str, Any]]) -> List[Tuple[str, str, int]]:
+    fields: List[Tuple[str, str, int]] = [
+        ("站点ID", normalize_text(station.get("station_id")), 5),
+        ("站点名称", normalize_text(station.get("name")), 8),
+        ("官网", normalize_text(station.get("website")), 6),
+        ("邀请链接", normalize_text(station.get("invite_url")), 5),
+        ("是否已检测", "已检测" if station.get("is_checked") else "未检测", 4),
+        ("检测时间", normalize_text(station.get("checked_at")), 3),
+        ("API", normalize_text(station.get("api_base_url") or station.get("api_url")), 5),
+        ("充值比", normalize_text(station.get("recharge_ratio")), 2),
+        ("备注", normalize_text(station.get("notes")), 4),
+    ]
+    for alias in station.get("aliases") or []:
+        fields.append(("别名", normalize_text(alias), 7))
+    for record in records:
+        fields.extend(
+            [
+                ("模型", normalize_text(record.get("model_name")), 4),
+                ("分组", normalize_text(record.get("group")), 4),
+                ("分组备注", normalize_text(record.get("group_note")), 5),
+            ]
+        )
+        for tag in ensure_list(record.get("tags")):
+            fields.append(("标签", tag, 3))
+    return fields
+
+
+def search_stations_full_text(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    raw_keyword = normalize_text(query.get("keyword") or query.get("query") or query.get("q"))
+    keyword = clean_quick_search_text(raw_keyword)
+    limit = int(query.get("limit") or 20)
+    if not keyword:
+        return {
+            "count": 0,
+            "items": [],
+            "station_ids": [],
+            "keyword": keyword,
+        }
+
+    records_by_station: Dict[str, List[Dict[str, Any]]] = {}
+    for record in registry.get("price_records", []):
+        records_by_station.setdefault(normalize_text(record.get("station_id")), []).append(record)
+
+    items = []
+    for station in registry.get("stations", []):
+        station_id = normalize_text(station.get("station_id"))
+        records = records_by_station.get(station_id, [])
+        score = 0
+        reasons = []
+        seen_reasons = set()
+        for label, value, weight in station_search_fields(station, records):
+            if not value:
+                continue
+            matched = text_matches_query(keyword, value)
+            if not matched:
+                continue
+            score += weight
+            reason = f"{label} 命中「{keyword}」"
+            if reason not in seen_reasons:
+                seen_reasons.add(reason)
+                reasons.append(reason)
+        if score <= 0:
+            continue
+        items.append(
+            {
+                "station_id": station_id,
+                "station_name": station.get("name") or station_id,
+                "website": station.get("website"),
+                "recharge_ratio": resolve_station_summary_recharge_ratio(station, {"records": records}),
+                "notes": station.get("notes"),
+                "score": score,
+                "reasons": reasons[:3],
+                "record_count": len(records),
+            }
+        )
+
+    items.sort(key=lambda item: (-item["score"], normalize_text(item.get("station_name")).lower()))
+    if limit > 0:
+        items = items[:limit]
+    return {
+        "count": len(items),
+        "items": items,
+        "station_ids": [item["station_id"] for item in items],
+        "keyword": keyword,
+    }
+
+
+def build_compact_search_markdown(registry: Dict[str, Any], search_result: Dict[str, Any]) -> str:
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    lines = []
+    for index, item in enumerate(search_result.get("items", []), start=1):
+        station = stations_by_id.get(item.get("station_id"), {})
+        summary = station_record_summary(registry, item.get("station_id"))
+        best_record_text = "暂无价格记录"
+        best_items = []
+        for record in summary.get("records", []):
+            rank_item = build_rank_item(registry, record, "summary_rmb_per_m")
+            if rank_item:
+                best_items.append(rank_item)
+        if best_items:
+            best_items.sort(key=lambda rank_item: to_decimal(rank_item.get("value")) or 0)
+            best = best_items[0]
+            best_record_text = f"{best.get('model_name')} / {best.get('group')} 综合价 {best.get('value')}/M"
+        reasons = "；".join(item.get("reasons") or []) or "关键词命中"
+        lines.append(f"{index}. {station.get('name') or item.get('station_id')}")
+        lines.append(f"官网：{normalize_text(station.get('website')) or '未记录'}")
+        lines.append(f"邀请链接：{normalize_text(station.get('invite_url')) or '未记录'}")
+        lines.append(f"充值比：{resolve_station_summary_recharge_ratio(station, summary)}")
+        lines.append(f"匹配：{reasons}")
+        lines.append(f"最优摘要：{best_record_text}")
+        lines.append("")
+    return "\n".join(lines).strip() or "暂无站点"
+
+
+def quick_query(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = normalize_text(payload.get("query") or payload.get("q") or payload.get("keyword"))
+    view = normalize_text(payload.get("view") or payload.get("display") or "detail").lower()
+    if is_quick_rank_query(text, payload):
+        rank_query = build_quick_rank_query(payload)
+        result = build_rank_station_markdown(registry, rank_query)
+        result.update(
+            {
+                "mode": "rank",
+                "query": text,
+                "parsed": rank_query,
+            }
+        )
+        return result
+
+    search_payload = {
+        "query": text,
+        "keyword": payload.get("keyword") or text,
+        "limit": payload.get("limit") or extract_quick_limit(text, default=20),
+    }
+    search_result = search_stations_full_text(registry, search_payload)
+    if view in {"compact", "简洁", "摘要"}:
+        text_output = build_compact_search_markdown(registry, search_result)
+    else:
+        text_output = build_station_markdown(registry, {"station_ids": search_result.get("station_ids", [])}).get("text", "")
+    return {
+        "mode": "search",
+        "query": text,
+        "keyword": search_result.get("keyword"),
+        "count": search_result.get("count", 0),
+        "items": search_result.get("items", []),
+        "station_ids": search_result.get("station_ids", []),
+        "text": text_output or "暂无站点",
     }
 
 
@@ -451,7 +2033,18 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
     if not pricing_payload:
         raise ValueError("缺少 pricing 对象")
 
+    _, _, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+
     station = upsert_station(registry, station_payload)
+    station_ratio_override = (
+        normalize_text(station_payload.get("recharge_ratio") or station_payload.get("充值比"))
+        or normalize_text(payload.get("recharge_ratio") or payload.get("充值比"))
+        or normalize_text(pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比"))
+    )
+    if station_ratio_override:
+        station["recharge_ratio"] = station_ratio_override
     pricing_payload.setdefault("model_name", pricing_payload.get("模型名称") or "gpt5.4")
     model_name = pricing_payload.get("model_name")
     explicit_group = normalize_text(pricing_payload.get("group") or pricing_payload.get("分组"))
@@ -470,10 +2063,22 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         station_group_multipliers = station.get("group_multipliers") or {}
         station_multiplier = station_group_multipliers.get(group.lower())
         if station_multiplier not in (None, ""):
-            pricing_payload["multiplier"] = station_multiplier
+            pricing_payload["multiplier"] = group_multiplier_value(station_multiplier)
+
+    effective_recharge_ratio = station_ratio_override or resolve_record_recharge_ratio(station, inherited_record)
+    pricing_payload["recharge_ratio"] = effective_recharge_ratio
+
+    pricing_payload = apply_official_model_defaults(pricing_payload)
 
     computed = compute(pricing_payload)
     timestamp = now_iso()
+    metadata_payload = {
+        **payload,
+        **pricing_payload,
+        "notes": normalize_text(payload.get("notes") or station.get("notes")),
+        "source": payload.get("source") or pricing_payload.get("source") or "manual",
+    }
+    confidence_score, confidence_reason = resolve_confidence(metadata_payload, station)
     record = {
         "record_id": f"{station['station_id']}::{normalize_key(computed['model_name'])}::{normalize_key(group)}",
         "station_id": station["station_id"],
@@ -481,15 +2086,50 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         "group": group,
         "source": normalize_text(payload.get("source") or "manual"),
         "currency_hint": normalize_text(payload.get("currency_hint")),
-        "input_price": pricing_payload.get("input_price") or pricing_payload.get("输入价格"),
-        "output_price": pricing_payload.get("output_price") or pricing_payload.get("输出价格") or pricing_payload.get("补全价格"),
-        "cache_price": pricing_payload.get("cache_price") or pricing_payload.get("缓存价格"),
-        "cache_read_price": pricing_payload.get("cache_read_price") or pricing_payload.get("缓存读取价格"),
-        "cache_write_price": pricing_payload.get("cache_write_price") or pricing_payload.get("缓存创建价格"),
+        "input_price": pricing_payload.get("input") or pricing_payload.get("input_price") or pricing_payload.get("输入价格"),
+        "output_price": (
+            pricing_payload.get("output")
+            or pricing_payload.get("output_price")
+            or pricing_payload.get("输出价格")
+            or pricing_payload.get("补全价格")
+        ),
+        "cache_price": pricing_payload.get("cache") or pricing_payload.get("cache_price") or pricing_payload.get("缓存价格"),
+        "cache_read_price": (
+            pricing_payload.get("cache_read")
+            or pricing_payload.get("cache_read_price")
+            or pricing_payload.get("缓存读取价格")
+        ),
+        "cache_write_price": (
+            pricing_payload.get("cache_write")
+            or pricing_payload.get("cache_write_price")
+            or pricing_payload.get("缓存创建价格")
+        ),
+        "group_note": pricing_payload.get("group_note") or pricing_payload.get("分组备注"),
+        "is_group_enabled": normalize_optional_bool(
+            pricing_payload.get("is_group_enabled")
+            if "is_group_enabled" in pricing_payload
+            else (
+                pricing_payload.get("group_enabled")
+                if "group_enabled" in pricing_payload
+                else pricing_payload.get("分组启用状态") if "分组启用状态" in pricing_payload else pricing_payload.get("是否启用")
+            ),
+            True,
+        ),
         "multiplier": pricing_payload.get("multiplier") or pricing_payload.get("倍率") or 1,
-        "recharge_ratio": pricing_payload.get("recharge_ratio") or pricing_payload.get("充值比") or "1:1",
+        "recharge_ratio": effective_recharge_ratio,
         "sale_price": pricing_payload.get("sale_price") or pricing_payload.get("售价") or pricing_payload.get("站点售价"),
         "tags": unique_strings(ensure_list(payload.get("tags"))),
+        "confidence_score": confidence_score,
+        "confidence_reason": normalize_text(payload.get("confidence_reason") or pricing_payload.get("confidence_reason")) or confidence_reason,
+        "last_verified_at": (
+            normalize_text(payload.get("last_verified_at") or pricing_payload.get("last_verified_at") or payload.get("最后验证时间"))
+            or timestamp
+        ),
+        "stale_after_days": normalize_int(
+            payload.get("stale_after_days") or pricing_payload.get("stale_after_days") or payload.get("过期天数"),
+            resolve_stale_after_days(station, inherited_record or {}),
+        ),
+        "expires_at": normalize_text(payload.get("expires_at") or pricing_payload.get("expires_at") or payload.get("过期时间")),
         "computed": computed,
         "updated_at": timestamp,
     }
@@ -500,22 +2140,155 @@ def upsert_record(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
         registry.setdefault("price_records", []).append(record)
         action = "created"
     else:
-        record["created_at"] = registry["price_records"][record_index].get("created_at", timestamp)
+        old_record = deepcopy(registry["price_records"][record_index])
+        record["created_at"] = old_record.get("created_at", timestamp)
+        if not record.get("expires_at"):
+            record["expires_at"] = old_record.get("expires_at", "")
         registry["price_records"][record_index] = record
+        append_price_history(old_record, record, "upsert")
         action = "updated"
 
     station["updated_at"] = timestamp
     save_registry(registry)
+    probe_api_configs = upsert_probe_configs_for_station(station, payload, computed["model_name"])
+    balance_configs = ensure_balance_config_for_station(station, payload)
     return {
         "action": action,
+        "changed_fields": ["station", "record"],
+        "summary": build_write_summary(station, record),
         "station": station,
         "record": record,
+        "probe_api_configs": probe_api_configs,
+        "balance_configs": balance_configs,
+    }
+
+
+def upsert_probe_api(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, _, conflict = resolve_station_for_write(registry, station_payload, allow_create=True)
+    if conflict:
+        return conflict
+    if station is None:
+        station = upsert_station(registry, station_payload)
+        save_registry(registry)
+
+    default_model = preferred_probe_model(
+        [
+            payload.get("model"),
+            payload.get("model_name"),
+            payload.get("probe_model"),
+        ]
+    )
+    probe_api_configs = upsert_probe_configs_for_station(station, payload, default_model)
+    return {
+        "action": "upsert-probe-api",
+        "summary": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "probe_api_configs": probe_api_configs,
+        },
+        "station": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "website": station.get("website"),
+        },
+        "probe_api_configs": probe_api_configs,
+    }
+
+
+def delete_probe_api(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+    if station is None or score == 0:
+        raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
+
+    filters = {
+        "station_id": station.get("station_id"),
+    }
+    for source_key, target_key in (
+        ("config_id", "config_id"),
+        ("name", "name"),
+        ("api_name", "name"),
+        ("probe_api_name", "name"),
+        ("api_base_url", "api_base_url"),
+        ("api_url", "api_base_url"),
+        ("url", "api_base_url"),
+        ("canonical_model_name", "canonical_model_name"),
+        ("canonical_model", "canonical_model_name"),
+        ("标准模型名", "canonical_model_name"),
+        ("request_model_name", "request_model_name"),
+        ("request_model", "request_model_name"),
+        ("请求模型名", "request_model_name"),
+    ):
+        if source_key in payload:
+            filters[target_key] = normalize_text(payload.get(source_key))
+    result = delete_mysql_probe_api_configs(filters)
+    result["station"] = {
+        "station_id": station.get("station_id"),
+        "station_name": station.get("name"),
+        "website": station.get("website"),
+    }
+    return result
+
+
+def upsert_balance_config_command(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    if not station_payload:
+        station_payload = {
+            key: payload.get(key)
+            for key in ("station_id", "name", "station_name", "alias", "site_alias", "website")
+            if payload.get(key) not in (None, "")
+        }
+    if not station_payload:
+        raise ValueError("缺少站点识别信息")
+
+    station, _, conflict = resolve_station_for_write(registry, station_payload, allow_create=True)
+    if conflict:
+        return conflict
+    if station is None:
+        station = upsert_station(registry, station_payload)
+        save_registry(registry)
+
+    normalized = normalize_balance_config_entry(station, payload)
+    saved = upsert_balance_config(normalized)
+    summary = balance_summary_item(station, saved, normalized.get("access_token"))
+    return {
+        "action": "upsert-balance-config",
+        "summary": summary,
+        "station": {
+            "station_id": station.get("station_id"),
+            "station_name": station.get("name"),
+            "website": station.get("website"),
+        },
+        "balance_configs": [summary],
     }
 
 
 def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     station_payload = deepcopy(payload.get("station") or {})
-    station, score = find_station(registry, station_payload)
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
     if station is None or score == 0:
         raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
 
@@ -537,9 +2310,18 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_price": ["cache_price", "缓存价格"],
         "cache_read_price": ["cache_read_price", "缓存读取价格"],
         "cache_write_price": ["cache_write_price", "缓存创建价格"],
+        "group_note": ["group_note", "分组备注"],
+        "is_group_enabled": ["is_group_enabled", "group_enabled", "分组启用状态", "是否启用"],
         "multiplier": ["multiplier", "倍率"],
-        "recharge_ratio": ["recharge_ratio", "充值比"],
         "sale_price": ["sale_price", "售价", "站点售价"],
+    }
+    metadata_field_map = {
+        "source": ["source", "来源"],
+        "confidence_score": ["confidence_score", "可信度", "price_confidence"],
+        "confidence_reason": ["confidence_reason", "可信度说明"],
+        "last_verified_at": ["last_verified_at", "最后验证时间"],
+        "stale_after_days": ["stale_after_days", "过期天数"],
+        "expires_at": ["expires_at", "过期时间"],
     }
 
     pricing_payload: Dict[str, Any] = {
@@ -550,21 +2332,59 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
         "cache_price": record.get("cache_price"),
         "cache_read_price": record.get("cache_read_price"),
         "cache_write_price": record.get("cache_write_price"),
+        "group_note": record.get("group_note"),
+        "is_group_enabled": record.get("is_group_enabled", True),
         "multiplier": record.get("multiplier"),
-        "recharge_ratio": record.get("recharge_ratio"),
+        "recharge_ratio": resolve_record_recharge_ratio(station, record),
         "sale_price": record.get("sale_price"),
     }
+
+    station_ratio_changed = False
+    if "recharge_ratio" in payload or "充值比" in payload:
+        value = normalize_text(payload.get("recharge_ratio") or payload.get("充值比")) or "1:1"
+        if value != resolve_station_recharge_ratio(station):
+            station["recharge_ratio"] = value
+            station_ratio_changed = True
+        pricing_payload["recharge_ratio"] = resolve_station_recharge_ratio(station)
 
     for target_field, source_keys in field_map.items():
         for source_key in source_keys:
             if source_key in payload:
                 value = payload[source_key]
+                if target_field == "is_group_enabled":
+                    value = normalize_bool(value)
                 if pricing_payload.get(target_field) != value:
                     pricing_payload[target_field] = value
                     changed_fields.append(target_field)
                 break
 
+    metadata_updates: Dict[str, Any] = {}
+    for target_field, source_keys in metadata_field_map.items():
+        for source_key in source_keys:
+            if source_key not in payload:
+                continue
+            value = payload[source_key]
+            if target_field == "confidence_score":
+                value = normalize_confidence(value)
+            elif target_field == "stale_after_days":
+                value = normalize_int(value, resolve_stale_after_days(station, record))
+            else:
+                value = normalize_text(value)
+            if record.get(target_field) != value:
+                metadata_updates[target_field] = value
+                changed_fields.append(target_field)
+            break
+
+    if "source" in metadata_updates and "confidence_score" not in metadata_updates:
+        score, reason = resolve_confidence({**record, **metadata_updates}, station)
+        metadata_updates["confidence_score"] = score
+        metadata_updates["confidence_reason"] = reason
+        changed_fields.extend(["confidence_score", "confidence_reason"])
+
     recomputed = compute(pricing_payload)
+    timestamp = now_iso()
+    if changed_fields and not any(field in metadata_updates for field in ("last_verified_at", "expires_at")):
+        metadata_updates["last_verified_at"] = timestamp
     record.update(
         {
             "input_price": pricing_payload.get("input_price"),
@@ -572,20 +2392,85 @@ def patch_record_fields(registry: Dict[str, Any], payload: Dict[str, Any]) -> Di
             "cache_price": pricing_payload.get("cache_price"),
             "cache_read_price": pricing_payload.get("cache_read_price"),
             "cache_write_price": pricing_payload.get("cache_write_price"),
+            "group_note": pricing_payload.get("group_note"),
+            "is_group_enabled": pricing_payload.get("is_group_enabled", True),
             "multiplier": pricing_payload.get("multiplier"),
-            "recharge_ratio": pricing_payload.get("recharge_ratio"),
+            # patch-record 只应回写明确参与本次计算的充值比，避免站点级字段缺失时误回退到 1:1。
+            "recharge_ratio": pricing_payload.get("recharge_ratio") or resolve_station_recharge_ratio(station, record),
             "sale_price": pricing_payload.get("sale_price"),
             "computed": recomputed,
-            "updated_at": now_iso(),
+            "updated_at": timestamp,
         }
     )
+    record.update(metadata_updates)
+    old_record = deepcopy(registry["price_records"][record_index])
     registry["price_records"][record_index] = record
+    append_price_history(old_record, record, "patch-record", unique_strings(changed_fields))
+    if station_ratio_changed:
+        station["updated_at"] = record["updated_at"]
+        recompute_station_records(registry, station, record["updated_at"])
     save_registry(registry)
 
     return {
+        "action": "patch-record",
+        "changed_fields": unique_strings(changed_fields),
+        "summary": build_write_summary(station, record),
         "station": station,
         "record": record,
-        "changed_fields": unique_strings(changed_fields),
+    }
+
+
+def delete_records(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    station_payload = deepcopy(payload.get("station") or {})
+    station, score, conflict = resolve_station_for_write(registry, station_payload)
+    if conflict:
+        return conflict
+    if station is None or score == 0:
+        raise ValueError("未找到可更新的中转站，请先提供已收录的别名、官网或 API 地址")
+
+    model_name = normalize_text(payload.get("model_name") or payload.get("模型名称"))
+    group = normalize_text(payload.get("group") or payload.get("分组"))
+
+    kept_records = []
+    removed_records = []
+    for record in registry.get("price_records", []):
+        if record.get("station_id") != station.get("station_id"):
+            kept_records.append(record)
+            continue
+        if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
+            kept_records.append(record)
+            continue
+        if group and normalize_key(record.get("group")) != normalize_key(group):
+            kept_records.append(record)
+            continue
+        removed_records.append(deepcopy(record))
+
+    if not removed_records:
+        return {
+            "action": "delete-records",
+            "removed_count": 0,
+            "removed_records": [],
+            "summary": build_write_summary(station),
+        }
+
+    registry["price_records"] = kept_records
+    timestamp = now_iso()
+    station["updated_at"] = timestamp
+    save_registry(registry)
+
+    return {
+        "action": "delete-records",
+        "removed_count": len(removed_records),
+        "summary": build_write_summary(station),
+        "station": station,
+        "removed_records": [
+            {
+                "record_id": record.get("record_id"),
+                "model_name": record.get("model_name"),
+                "group": record.get("group"),
+            }
+            for record in removed_records
+        ],
     }
 
 
@@ -605,15 +2490,48 @@ def list_registry(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, 
     }
 
 
+def query_price_history(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    history = load_history()
+    station_payload = deepcopy(query.get("station") or query)
+    station, score = find_station(registry, station_payload)
+    station_id = normalize_text(query.get("station_id") or (station or {}).get("station_id"))
+    model_name = normalize_text(query.get("model_name") or query.get("模型名称"))
+    group = normalize_text(query.get("group") or query.get("分组"))
+    limit = int(query.get("limit") or 20)
+
+    items = []
+    for change in history.get("changes", []):
+        if station_id and normalize_text(change.get("station_id")) != station_id:
+            continue
+        if model_name and normalize_key(change.get("model_name")) != normalize_key(model_name):
+            continue
+        if group and normalize_key(change.get("group")) != normalize_key(group):
+            continue
+        items.append(change)
+
+    items.sort(key=lambda item: normalize_text(item.get("changed_at")), reverse=True)
+    if limit > 0:
+        items = items[:limit]
+    return {
+        "count": len(items),
+        "station_match_score": score if station else 0,
+        "filters": {
+            "station_id": station_id or None,
+            "model_name": model_name or None,
+            "group": group or None,
+        },
+        "items": items,
+    }
+
+
 def iso_to_display(value: Any) -> str:
     text = normalize_text(value)
     if not text:
         return "未记录"
-    try:
-        parsed = datetime.fromisoformat(text)
-        return parsed.strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    parsed = parse_iso_datetime(text)
+    if parsed is None:
         return text
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def station_record_summary(registry: Dict[str, Any], station_id: str) -> Dict[str, Any]:
@@ -626,36 +2544,78 @@ def station_record_summary(registry: Dict[str, Any], station_id: str) -> Dict[st
     }
 
 
+def filtered_station_record_summary(
+    registry: Dict[str, Any],
+    station: Dict[str, Any],
+    filters: Optional[Dict[str, Any]] = None,
+    rank_items_by_record_id: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    filters = filters or {}
+    rank_items_by_record_id = rank_items_by_record_id or {}
+    model_name = normalize_text(filters.get("model_name"))
+    group = normalize_text(filters.get("group"))
+    include_terms = ensure_list(filters.get("include_terms"))
+    exclude_terms = ensure_list(filters.get("exclude_terms"))
+
+    summary = station_record_summary(registry, station.get("station_id"))
+    records = []
+    for record in summary.get("records", []):
+        if model_name and normalize_key(record.get("model_name")) != normalize_key(model_name):
+            continue
+        if group and normalize_key(record.get("group")) != normalize_key(group):
+            continue
+        if include_terms and not record_matches_terms(station, record, include_terms, require_all=True):
+            continue
+        if exclude_terms and record_matches_terms(station, record, exclude_terms, require_all=False):
+            continue
+        rendered_record = deepcopy(record)
+        rank_item = rank_items_by_record_id.get(normalize_text(record.get("record_id")))
+        if rank_item:
+            rendered_record["_cheap_reasons"] = rank_item.get("cheap_reasons") or []
+            rendered_record["_warnings"] = rank_item.get("warnings") or []
+            rendered_record["_confidence_score"] = rank_item.get("confidence_score")
+            rendered_record["_last_verified_at"] = rank_item.get("last_verified_at")
+        records.append(rendered_record)
+
+    return {
+        "record_count": len(records),
+        "model_groups": [f"{record.get('model_name')} / {record.get('group')}" for record in records],
+        "records": records,
+    }
+
+
 def station_completeness(station: Dict[str, Any]) -> str:
     score = 0
     if normalize_text(station.get("website")):
         score += 1
-    if normalize_text(station.get("api_base_url")):
-        score += 1
     if normalize_text(station.get("notes")):
         score += 1
 
-    if score == 3:
-        return "完整"
     if score == 2:
-        return "较完整"
+        return "完整"
     if score == 1:
-        return "部分缺失"
+        return "较完整"
     return "待补充"
 
 
 def build_original_price_text(record: Dict[str, Any]) -> str:
+    def display_price(value: Any) -> str:
+        text = normalize_text(value)
+        if not text:
+            return ""
+        return re.sub(r"(?i)(/\s*)1M(?:\s*tokens?)?", r"\1M", text)
+
     parts = []
     if record.get("input_price"):
-        parts.append(f"输入 {record.get('input_price')}")
+        parts.append(f"输入 {display_price(record.get('input_price'))}")
     if record.get("output_price"):
-        parts.append(f"输出 {record.get('output_price')}")
+        parts.append(f"输出 {display_price(record.get('output_price'))}")
     if record.get("cache_read_price"):
-        parts.append(f"缓存读 {record.get('cache_read_price')}")
+        parts.append(f"缓存读 {display_price(record.get('cache_read_price'))}")
     elif record.get("cache_price"):
-        parts.append(f"缓存 {record.get('cache_price')}")
+        parts.append(f"缓存 {display_price(record.get('cache_price'))}")
     if record.get("cache_write_price"):
-        parts.append(f"缓存写 {record.get('cache_write_price')}")
+        parts.append(f"缓存写 {display_price(record.get('cache_write_price'))}")
     return " · ".join(parts) if parts else "未记录"
 
 
@@ -676,8 +2636,8 @@ def format_rmb_per_m(value: Any) -> str:
     return f"{trimmed}/M"
 
 
-def build_computed_price_text(record: Dict[str, Any]) -> str:
-    computed = record.get("computed", {})
+def build_computed_price_text(record: Dict[str, Any], computed: Optional[Dict[str, Any]] = None) -> str:
+    computed = computed or record.get("computed", {})
     dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
     parts = []
     input_dimension = dimensions.get("input") or {}
@@ -698,10 +2658,98 @@ def build_computed_price_text(record: Dict[str, Any]) -> str:
     return " · ".join(parts) if parts else "未记录"
 
 
+def append_station_markdown_block(
+    lines: List[str],
+    station: Dict[str, Any],
+    summary: Dict[str, Any],
+    index: int,
+) -> None:
+    website = normalize_text(station.get("website")) or "未记录"
+    invite_url = normalize_text(station.get("invite_url")) or "未记录"
+    checked_status = "已检测" if station.get("is_checked") else "未检测"
+    checked_at = iso_to_display(station.get("checked_at")) if normalize_text(station.get("checked_at")) else "未记录"
+    recharge_ratio = resolve_station_summary_recharge_ratio(station, summary)
+    notes = normalize_text(station.get("notes")) or "无"
+    marker = "（测试）" if is_test_station(station) else ""
+
+    lines.append(f"{index}. {station.get('name') or station.get('station_id')}{marker}")
+    lines.append(f"官网：{website}")
+    lines.append(f"邀请链接：{invite_url}")
+    lines.append(f"是否已检测：{checked_status}")
+    lines.append(f"检测时间：{checked_at}")
+    lines.append(f"充值比：{recharge_ratio}")
+    lines.append(f"备注：{notes}")
+    if is_test_station(station):
+        lines.append("标识：测试数据")
+    lines.append(f"创建时间：{iso_to_display(station.get('created_at'))}")
+    lines.append(f"最后更新：{iso_to_display(station.get('updated_at'))}")
+    lines.append("")
+
+    has_group_note = any(normalize_text(record.get("group_note")) for record in summary["records"])
+    has_cheap_reason = any(record.get("_cheap_reasons") for record in summary["records"])
+    has_quality = any(
+        record.get("_warnings")
+        or record.get("_confidence_score") not in (None, "")
+        or record.get("_last_verified_at")
+        or record.get("confidence_score") not in (None, "")
+        or record.get("last_verified_at")
+        or record.get("expires_at")
+        for record in summary["records"]
+    )
+    headers = ["模型", "分组"]
+    aligns = ["---", "---"]
+    if has_group_note:
+        headers.append("分组备注")
+        aligns.append("---")
+    headers.extend(["倍率", "折算价格", "综合价"])
+    aligns.extend(["---:", "---", "---:"])
+    if has_cheap_reason:
+        headers.append("便宜原因")
+        aligns.append("---")
+    if has_quality:
+        headers.extend(["可信度", "提醒"])
+        aligns.extend(["---:", "---"])
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("|" + "|".join(aligns) + "|")
+
+    for record in summary["records"]:
+        computed = compute(build_record_pricing_payload(station, record))
+        multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
+        group_note = normalize_text(record.get("group_note")) or "-"
+        summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
+        cheap_reason = "；".join(record.get("_cheap_reasons") or []) or "-"
+        row = [normalize_text(record.get("model_name")), normalize_text(record.get("group"))]
+        if has_group_note:
+            row.append(group_note)
+        row.extend([multiplier, build_computed_price_text(record, computed), summary_cost])
+        if has_cheap_reason:
+            row.append(cheap_reason)
+        if has_quality:
+            score, _ = record_confidence(record, station)
+            warnings = record.get("_warnings") or record_health_warnings(station, record)
+            row.extend([confidence_label(record.get("_confidence_score") or score), "；".join(warnings) or "-"])
+        lines.append("| " + " | ".join(row) + " |")
+
+    if not summary["records"]:
+        lines.append("| " + " | ".join(["-" for _ in headers]) + " |")
+    lines.append("")
+
+
 def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
     keyword = normalize_text(query.get("keyword"))
+    station_ids = [
+        normalize_text(station_id)
+        for station_id in ensure_list(query.get("station_ids"))
+        if normalize_text(station_id)
+    ]
     stations = registry.get("stations", [])
-    if keyword:
+    if station_ids:
+        stations_by_id = {
+            normalize_text(station.get("station_id")): station
+            for station in stations
+        }
+        stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+    elif keyword:
         lowered = keyword.lower()
         filtered = []
         for station in stations:
@@ -710,63 +2758,1243 @@ def build_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> D
                 station.get("name"),
                 station.get("website"),
                 station.get("api_base_url"),
+                station.get("api_url"),
+                station.get("notes"),
                 *(station.get("aliases") or []),
             ]
             if any(lowered in normalize_text(item).lower() for item in haystacks):
                 filtered.append(station)
         stations = filtered
 
-    stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
-    test_station_count = sum(1 for station in stations if is_test_station(station))
-    real_station_count = len(stations) - test_station_count
+    if not station_ids:
+        stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
     lines = []
-    lines.append("# 中转站清单")
-    lines.append("")
-    lines.append(f"- 站点总数：`{len(stations)}`")
-    lines.append(f"- 正式站点：`{real_station_count}`")
-    lines.append(f"- 测试站点：`{test_station_count}`")
-    lines.append(f"- 价格记录总数：`{len(registry.get('price_records', []))}`")
-    if keyword:
-        lines.append(f"- 过滤关键字：`{keyword}`")
-    lines.append("")
 
     for index, station in enumerate(stations, start=1):
         summary = station_record_summary(registry, station.get("station_id"))
-        aliases = station.get("aliases") or []
-        alias_text = " / ".join(aliases[:5]) if aliases else "未记录"
-        website = normalize_text(station.get("website")) or "未记录"
-        api_base_url = normalize_text(station.get("api_base_url")) or "未记录"
-        notes = normalize_text(station.get("notes")) or "无"
-        marker = "（测试）" if is_test_station(station) else ""
+        append_station_markdown_block(lines, station, summary, index)
 
-        lines.append(f"## {index}. {station.get('name') or station.get('station_id')}{marker}")
-        lines.append("")
-        lines.append(f"- 官网：{website}")
-        lines.append(f"- API：{api_base_url}")
-        lines.append(f"- 备注：{notes}")
-        if is_test_station(station):
-            lines.append("- 标识：测试数据")
-        lines.append(f"- 创建时间：`{iso_to_display(station.get('created_at'))}`")
-        lines.append(f"- 最后更新：`{iso_to_display(station.get('updated_at'))}`")
-        lines.append("")
-        lines.append("| 模型 | 分组 | 倍率 | 折算价格 | 综合价 |")
-        lines.append("|---|---|---:|---|---:|")
-        for record in summary["records"]:
-            computed = record.get("computed", {})
-            multiplier = trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1")
-            summary_cost = format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-")
-            lines.append(
-                f"| `{record.get('model_name')}` | `{record.get('group')}` | `{multiplier}` | "
-                f"{build_computed_price_text(record)} | `{summary_cost}` |"
-            )
-        if not summary["records"]:
-            lines.append("| - | - | - | 暂无价格记录 | - |")
-        lines.append("")
+    if not lines:
+        lines.append("暂无站点")
 
     return {
         "count": len(stations),
         "text": "\n".join(lines).strip(),
     }
+
+
+def build_rank_station_markdown(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    rank_result = rank_records(registry, query)
+    limit = int(query.get("limit") or 10)
+    station_ids = []
+    seen_station_ids = set()
+    rank_items_by_record_id = {
+        normalize_text(item.get("record_id")): item
+        for item in rank_result.get("items", [])
+        if normalize_text(item.get("record_id"))
+    }
+
+    for item in rank_result.get("items", []):
+        station_id = normalize_text(item.get("station_id"))
+        if not station_id or station_id in seen_station_ids:
+            continue
+        seen_station_ids.add(station_id)
+        station_ids.append(station_id)
+        if len(station_ids) >= limit:
+            break
+
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+
+    lines = []
+
+    for index, station in enumerate(stations, start=1):
+        summary = filtered_station_record_summary(
+            registry,
+            station,
+            rank_result.get("filters", {}),
+            rank_items_by_record_id,
+        )
+        append_station_markdown_block(lines, station, summary, index)
+
+    if not lines:
+        lines.append("暂无站点")
+
+    return {
+        "count": len(stations),
+        "text": "\n".join(lines).strip(),
+        "station_ids": station_ids,
+    }
+
+
+def html_escape(value: Any) -> str:
+    return html.escape(normalize_text(value), quote=True)
+
+
+def html_attr(value: Any) -> str:
+    return html_escape(value)
+
+
+def safe_website_href(value: Any) -> str:
+    text = normalize_text(value)
+    if re.match(r"^https?://", text, flags=re.I):
+        return text
+    return ""
+
+
+def metric_title(metric: Any) -> str:
+    titles = {
+        "summary_rmb_per_m": "综合成本",
+        "input_rmb_per_m": "输入成本",
+        "output_rmb_per_m": "输出成本",
+        "cache_read_rmb_per_m": "缓存读取成本",
+        "cache_write_rmb_per_m": "缓存创建成本",
+        "output_input_ratio": "输出/输入比",
+        "cache_read_discount_vs_input": "缓存读取折扣",
+    }
+    return titles.get(normalize_text(metric), normalize_text(metric) or "综合成本")
+
+
+def format_filter_value(value: Any) -> str:
+    if isinstance(value, list):
+        return "、".join(normalize_text(item) for item in value if normalize_text(item)) or "无"
+    if isinstance(value, float):
+        return confidence_label(value)
+    return normalize_text(value) or "无"
+
+
+def collect_station_rows(station: Dict[str, Any], summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = []
+    for record in summary.get("records", []):
+        computed = compute(build_record_pricing_payload(station, record))
+        score, _ = record_confidence(record, station)
+        warnings = record.get("_warnings") or record_health_warnings(station, record)
+        rows.append(
+            {
+                "model_name": normalize_text(record.get("model_name")),
+                "group": normalize_text(record.get("group")),
+                "group_note": normalize_text(record.get("group_note")) or "-",
+                "multiplier": trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1"),
+                "computed_price": build_computed_price_text(record, computed),
+                "summary_cost": format_rmb_per_m(computed.get("summary", {}).get("rmb_per_m") or "-"),
+                "cheap_reasons": record.get("_cheap_reasons") or [],
+                "confidence": confidence_label(record.get("_confidence_score") or score),
+                "warnings": warnings,
+            }
+        )
+    return rows
+
+
+def station_html_view(station: Dict[str, Any], summary: Dict[str, Any], index: int) -> Dict[str, Any]:
+    rows = collect_station_rows(station, summary)
+    return {
+        "index": index,
+        "name": normalize_text(station.get("name") or station.get("station_id")) or "未命名站点",
+        "station_id": normalize_text(station.get("station_id")),
+        "website": normalize_text(station.get("website")) or "未记录",
+        "invite_url": normalize_text(station.get("invite_url")) or "未记录",
+        "is_checked": bool(station.get("is_checked")),
+        "checked_at": iso_to_display(station.get("checked_at")) if normalize_text(station.get("checked_at")) else "未记录",
+        "recharge_ratio": resolve_station_summary_recharge_ratio(station, summary),
+        "notes": normalize_text(station.get("notes")) or "无",
+        "is_test": is_test_station(station),
+        "created_at": iso_to_display(station.get("created_at")),
+        "updated_at": iso_to_display(station.get("updated_at")),
+        "rows": rows,
+    }
+
+
+def collect_rank_station_html_views(
+    registry: Dict[str, Any],
+    query: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[str]]:
+    rank_result = rank_records(registry, query)
+    limit = int(query.get("limit") or 10)
+    station_ids = []
+    seen_station_ids = set()
+    rank_items_by_record_id = {
+        normalize_text(item.get("record_id")): item
+        for item in rank_result.get("items", [])
+        if normalize_text(item.get("record_id"))
+    }
+
+    for item in rank_result.get("items", []):
+        station_id = normalize_text(item.get("station_id"))
+        if not station_id or station_id in seen_station_ids:
+            continue
+        seen_station_ids.add(station_id)
+        station_ids.append(station_id)
+        if len(station_ids) >= limit:
+            break
+
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    views = []
+    for index, station_id in enumerate(station_ids, start=1):
+        station = stations_by_id.get(station_id)
+        if not station:
+            continue
+        summary = filtered_station_record_summary(
+            registry,
+            station,
+            rank_result.get("filters", {}),
+            rank_items_by_record_id,
+        )
+        views.append(station_html_view(station, summary, index))
+    return rank_result, views, station_ids
+
+
+def collect_station_html_views(registry: Dict[str, Any], query: Dict[str, Any]) -> List[Dict[str, Any]]:
+    keyword = normalize_text(query.get("keyword"))
+    station_ids = [
+        normalize_text(station_id)
+        for station_id in ensure_list(query.get("station_ids"))
+        if normalize_text(station_id)
+    ]
+    stations = registry.get("stations", [])
+    if station_ids:
+        stations_by_id = {
+            normalize_text(station.get("station_id")): station
+            for station in stations
+        }
+        stations = [stations_by_id[station_id] for station_id in station_ids if station_id in stations_by_id]
+    elif keyword:
+        lowered = keyword.lower()
+        filtered = []
+        for station in stations:
+            haystacks = [
+                station.get("station_id"),
+                station.get("name"),
+                station.get("website"),
+                station.get("api_base_url"),
+                station.get("api_url"),
+                station.get("notes"),
+                *(station.get("aliases") or []),
+            ]
+            if any(lowered in normalize_text(item).lower() for item in haystacks):
+                filtered.append(station)
+        stations = filtered
+
+    if not station_ids:
+        stations = sorted(stations, key=lambda item: normalize_text(item.get("name") or item.get("station_id")).lower())
+
+    return [
+        station_html_view(station, station_record_summary(registry, station.get("station_id")), index)
+        for index, station in enumerate(stations, start=1)
+    ]
+
+
+def render_filter_chips(filters: Dict[str, Any]) -> str:
+    chips = [
+        ("模型", filters.get("model_name") or "全部模型"),
+        ("分组", filters.get("group") or "全部分组"),
+        ("排序", metric_title(filters.get("metric"))),
+        ("方向", "从低到高" if filters.get("direction") == "asc" else "从高到低"),
+    ]
+    if filters.get("include_terms"):
+        chips.append(("包含", filters.get("include_terms")))
+    if filters.get("exclude_terms"):
+        chips.append(("排除", filters.get("exclude_terms")))
+    if filters.get("min_confidence") is not None:
+        chips.append(("最低可信度", filters.get("min_confidence")))
+    return "".join(
+        f'<span class="chip"><b>{html_escape(label)}</b>{html_escape(format_filter_value(value))}</span>'
+        for label, value in chips
+    )
+
+
+def render_warning_tags(warnings: List[str]) -> str:
+    if not warnings:
+        return '<span class="tag tag-ok">稳定</span>'
+    tags = []
+    for warning in warnings:
+        lower = warning.lower()
+        level = "risk"
+        if "低" in warning or "过期" in warning or "异常" in warning or "low" in lower:
+            level = "danger"
+        tags.append(f'<span class="tag tag-{level}">{html_escape(warning)}</span>')
+    return "".join(tags)
+
+
+def render_station_cards(views: List[Dict[str, Any]]) -> str:
+    if not views:
+        return (
+            '<section class="empty-state">'
+            '<div class="empty-pulse"></div>'
+            '<h2>暂无命中站点</h2>'
+            '<p>换一个模型、分组或筛选条件后重新生成排行。</p>'
+            '</section>'
+        )
+
+    cards = []
+    for view in views:
+        rows = []
+        for row in view.get("rows", []):
+            reason_text = "；".join(row.get("cheap_reasons") or []) or "-"
+            rows.append(
+                "<tr>"
+                f'<td data-label="模型">{html_escape(row.get("model_name"))}</td>'
+                f'<td data-label="分组">{html_escape(row.get("group"))}</td>'
+                f'<td data-label="倍率" class="num">{html_escape(row.get("multiplier"))}</td>'
+                f'<td data-label="折算价格">{html_escape(row.get("computed_price"))}</td>'
+                f'<td data-label="综合价" class="num price">{html_escape(row.get("summary_cost"))}</td>'
+                f'<td data-label="便宜原因">{html_escape(reason_text)}</td>'
+                f'<td data-label="可信度" class="num">{html_escape(row.get("confidence"))}</td>'
+                f'<td data-label="提醒"><div class="tags">{render_warning_tags(row.get("warnings") or [])}</div></td>'
+                "</tr>"
+            )
+        if not rows:
+            rows.append(
+                '<tr><td data-label="状态" colspan="8" class="empty-row">该站点暂无价格记录</td></tr>'
+            )
+
+        website = view.get("website") or "未记录"
+        href = safe_website_href(website)
+        website_html = html_escape(website)
+        if href:
+            website_html = f'<a href="{html_attr(href)}" target="_blank" rel="noopener noreferrer">{html_escape(website)}</a>'
+        invite_url = view.get("invite_url") or "未记录"
+        invite_href = safe_website_href(invite_url)
+        invite_html = html_escape(invite_url)
+        if invite_href:
+            invite_html = f'<a href="{html_attr(invite_href)}" target="_blank" rel="noopener noreferrer">{html_escape(invite_url)}</a>'
+        checked_status = "已检测" if view.get("is_checked") else "未检测"
+        rank_label = "Prime" if view.get("index") == 1 else f'No.{view.get("index")}'
+        test_badge = '<span class="test-badge">测试数据</span>' if view.get("is_test") else ""
+        cards.append(
+            f'<article class="station-card{" station-card-prime" if view.get("index") == 1 else ""}" '
+            f'style="--delay:{min(int(view.get("index") or 1) * 45, 540)}ms">'
+            '<div class="card-orbit" aria-hidden="true"></div>'
+            '<header class="station-head">'
+            f'<div><p class="rank-kicker">{html_escape(rank_label)}</p>'
+            f'<h2>{html_escape(view.get("name"))}{test_badge}</h2></div>'
+            f'<span class="record-count">{len(view.get("rows") or [])} 条记录</span>'
+            '</header>'
+            '<div class="station-meta">'
+            f'<span><b>官网</b>{website_html}</span>'
+            f'<span><b>邀请链接</b>{invite_html}</span>'
+            f'<span><b>是否已检测</b>{html_escape(checked_status)}</span>'
+            f'<span><b>检测时间</b>{html_escape(view.get("checked_at"))}</span>'
+            f'<span><b>充值比</b>{html_escape(view.get("recharge_ratio"))}</span>'
+            f'<span><b>最后更新</b>{html_escape(view.get("updated_at"))}</span>'
+            '</div>'
+            f'<p class="station-notes">{html_escape(view.get("notes"))}</p>'
+            '<div class="table-wrap">'
+            '<table>'
+            '<thead><tr>'
+            '<th>模型</th><th>分组</th><th>倍率</th><th>折算价格</th><th>综合价</th><th>便宜原因</th><th>可信度</th><th>提醒</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody>'
+            '</table>'
+            '</div>'
+            '</article>'
+        )
+    return "".join(cards)
+
+
+def render_station_html_document(
+    views: List[Dict[str, Any]],
+    payload: Dict[str, Any],
+    filters: Dict[str, Any],
+    mode: str,
+) -> str:
+    theme = normalize_text(payload.get("theme") or "dark").lower()
+    theme_class = "theme-light" if theme == "light" else "theme-dark"
+    title = normalize_text(payload.get("title"))
+    if not title:
+        title = "站点价格排行雷达" if mode == "rank" else "站点价格情报总览"
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    model_text = filters.get("model_name") or "全部模型"
+    metric_text = metric_title(filters.get("metric"))
+    card_count = len(views)
+    record_count = sum(len(view.get("rows") or []) for view in views)
+    filter_chips = render_filter_chips(filters)
+    cards = render_station_cards(views)
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #07110f;
+      --panel: rgba(10, 26, 23, .78);
+      --panel-strong: rgba(13, 37, 33, .92);
+      --text: #edf7f3;
+      --muted: #9db5ad;
+      --line: rgba(137, 255, 219, .16);
+      --cyan: #48f2c2;
+      --cyan-soft: rgba(72, 242, 194, .18);
+      --amber: #ffbf4d;
+      --danger: #ff6b7d;
+      --risk: #ffdf87;
+      --ok: #75e6a1;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .38);
+      --radius: 8px;
+      font-family: "Trebuchet MS", "Aptos", "Microsoft YaHei", sans-serif;
+    }}
+    .theme-light {{
+      color-scheme: light;
+      --bg: #eef5f1;
+      --panel: rgba(255, 255, 255, .78);
+      --panel-strong: rgba(255, 255, 255, .94);
+      --text: #11221d;
+      --muted: #526b62;
+      --line: rgba(3, 92, 75, .18);
+      --cyan: #008f73;
+      --cyan-soft: rgba(0, 143, 115, .12);
+      --amber: #a86800;
+      --danger: #b3263a;
+      --risk: #806000;
+      --ok: #0d7b45;
+      --shadow: 0 24px 70px rgba(13, 44, 38, .16);
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ background: var(--bg); }}
+    body {{
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--text);
+      background:
+        linear-gradient(120deg, rgba(72, 242, 194, .12), transparent 32%),
+        radial-gradient(circle at 82% 8%, rgba(255, 191, 77, .16), transparent 28%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 54px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 54px),
+        var(--bg);
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }}
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(255,255,255,.18) 1px, transparent 1px);
+      background-size: 3px 3px;
+      opacity: .08;
+      mix-blend-mode: screen;
+    }}
+    a {{ color: var(--cyan); text-underline-offset: 3px; }}
+    .shell {{ width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 34px 0 56px; }}
+    .hero {{
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.3fr .7fr;
+      gap: 22px;
+      align-items: stretch;
+      margin-bottom: 20px;
+      animation: rise .5s ease-out both;
+    }}
+    .hero-main, .signal-panel, .station-card, .empty-state {{
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }}
+    .hero-main {{ padding: 28px; overflow: hidden; position: relative; }}
+    .hero-main::after {{
+      content: "";
+      position: absolute;
+      right: -90px;
+      top: -110px;
+      width: 260px;
+      height: 260px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      box-shadow: inset 0 0 48px var(--cyan-soft);
+    }}
+    .eyebrow {{ margin: 0 0 12px; color: var(--cyan); font-weight: 700; text-transform: uppercase; font-size: 12px; }}
+    h1 {{ margin: 0; max-width: 760px; font-size: clamp(30px, 6vw, 68px); line-height: .98; letter-spacing: 0; }}
+    .hero-copy {{ margin: 18px 0 0; max-width: 760px; color: var(--muted); font-size: 17px; line-height: 1.65; }}
+    .chips {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
+    .chip {{
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    .chip b {{ color: var(--text); font-weight: 700; }}
+    .signal-panel {{
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+      background: var(--panel-strong);
+    }}
+    .signal {{
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+    }}
+    .signal:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .signal span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .signal strong {{ display: block; margin-top: 5px; font-size: 28px; font-variant-numeric: tabular-nums; }}
+    .board {{ display: grid; gap: 16px; }}
+    .station-card {{
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+      animation: cardIn .52s ease-out both;
+      animation-delay: var(--delay);
+      transition: transform .22s ease, border-color .22s ease, background .22s ease;
+    }}
+    .station-card:hover, .station-card:focus-within {{
+      transform: translateY(-3px);
+      border-color: color-mix(in srgb, var(--cyan) 48%, transparent);
+    }}
+    .station-card-prime::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0 34%, rgba(72,242,194,.18) 48%, transparent 62%);
+      transform: translateX(-100%);
+      animation: scan 3.6s ease-in-out infinite;
+      pointer-events: none;
+    }}
+    .card-orbit {{
+      position: absolute;
+      width: 170px;
+      height: 170px;
+      right: -82px;
+      top: -92px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      opacity: .65;
+    }}
+    .station-head {{
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }}
+    .rank-kicker {{ margin: 0 0 5px; color: var(--amber); font-size: 12px; font-weight: 800; text-transform: uppercase; }}
+    h2 {{ margin: 0; font-size: clamp(20px, 3vw, 30px); letter-spacing: 0; }}
+    .test-badge, .record-count {{
+      display: inline-flex;
+      margin-left: 10px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--amber);
+      font-size: 12px;
+      vertical-align: middle;
+    }}
+    .record-count {{ margin-left: 0; color: var(--cyan); white-space: nowrap; }}
+    .station-meta {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) .55fr .8fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }}
+    .station-meta span {{
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: rgba(255,255,255,.035);
+      overflow-wrap: anywhere;
+    }}
+    .station-meta b {{ display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; }}
+    .station-notes {{ margin: 0 0 16px; color: var(--muted); line-height: 1.65; }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }}
+    table {{ width: 100%; border-collapse: collapse; min-width: 900px; background: rgba(0,0,0,.12); }}
+    th, td {{ padding: 13px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }}
+    th {{ color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; background: rgba(255,255,255,.04); }}
+    td {{ color: var(--text); line-height: 1.55; }}
+    tr:last-child td {{ border-bottom: 0; }}
+    .num, .price {{ font-family: "Cascadia Mono", "Consolas", monospace; font-variant-numeric: tabular-nums; }}
+    .price {{ color: var(--cyan); font-weight: 800; }}
+    .tags {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .tag {{
+      display: inline-flex;
+      padding: 5px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      line-height: 1.25;
+      background: rgba(255,255,255,.045);
+    }}
+    .tag-ok {{ color: var(--ok); }}
+    .tag-risk {{ color: var(--risk); }}
+    .tag-danger {{ color: var(--danger); }}
+    .empty-state {{
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 44px 20px;
+      animation: rise .5s ease-out both;
+    }}
+    .empty-state h2 {{ margin: 16px 0 8px; }}
+    .empty-state p {{ margin: 0; color: var(--muted); }}
+    .empty-pulse {{ width: 82px; height: 82px; border-radius: 50%; border: 1px solid var(--cyan); box-shadow: 0 0 44px var(--cyan-soft); }}
+    .empty-row {{ text-align: center; color: var(--muted); }}
+    footer {{ margin-top: 18px; color: var(--muted); font-size: 12px; text-align: center; }}
+    @keyframes rise {{ from {{ opacity: 0; transform: translateY(14px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    @keyframes cardIn {{ from {{ opacity: 0; transform: translateY(18px) scale(.99); }} to {{ opacity: 1; transform: translateY(0) scale(1); }} }}
+    @keyframes scan {{ 0%, 48% {{ transform: translateX(-100%); }} 68%, 100% {{ transform: translateX(100%); }} }}
+    @media (max-width: 860px) {{
+      .shell {{ width: min(100% - 20px, 760px); padding-top: 18px; }}
+      .hero {{ grid-template-columns: 1fr; }}
+      .hero-main {{ padding: 22px; }}
+      .station-meta {{ grid-template-columns: 1fr; }}
+      .station-head {{ display: grid; }}
+      .record-count {{ justify-self: start; }}
+      table {{ min-width: 0; }}
+      thead {{ display: none; }}
+      tr {{ display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }}
+      tr:last-child {{ border-bottom: 0; }}
+      td {{ display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 0; border-bottom: 0; overflow-wrap: anywhere; }}
+      td::before {{ content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 800; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }}
+    }}
+  </style>
+</head>
+<body class="{html_attr(theme_class)}">
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-main">
+        <p class="eyebrow">Model Price Intelligence</p>
+        <h1>{html_escape(title)}</h1>
+        <p class="hero-copy">围绕 {html_escape(model_text)} 的站点价格信号面板，按 {html_escape(metric_text)} 聚合展示，保留可信度、过期与异常低价提醒。</p>
+        <div class="chips">{filter_chips}</div>
+      </div>
+      <aside class="signal-panel" aria-label="排行概览">
+        <div class="signal"><span>命中站点</span><strong>{card_count}</strong></div>
+        <div class="signal"><span>价格记录</span><strong>{record_count}</strong></div>
+        <div class="signal"><span>生成时间</span><strong>{html_escape(generated_at)}</strong></div>
+      </aside>
+    </section>
+    <section class="board" aria-label="站点排行列表">
+      {cards}
+    </section>
+    <footer>由 model-price-calculator 本地价格库生成 · HTML 仅用于展示，不会修改数据</footer>
+  </main>
+</body>
+</html>"""
+
+
+def maybe_write_html_output(result: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    output_file = normalize_text(payload.get("output_file"))
+    if not output_file:
+        output_file = str(Path(tempfile.gettempdir()) / f"model-price-{datetime.now().strftime('%Y%m%d-%H%M%S')}.html")
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(result.get("html", ""), encoding="utf-8")
+    result["output_file"] = str(output_path)
+    return result
+
+
+def dashboard_record_item(
+    registry: Dict[str, Any],
+    station: Dict[str, Any],
+    record: Dict[str, Any],
+    medians: Dict[str, Any],
+) -> Dict[str, Any]:
+    computed = compute(build_record_pricing_payload(station, record))
+    score, _ = record_confidence(record, station)
+    warnings = [
+        warning
+        for warning in record_health_warnings(station, record, anomaly_low_price_warnings(record, computed, medians))
+        if "可信度" not in normalize_text(warning)
+    ]
+    cheap_reasons = item_explain_parts(station, record, "summary_rmb_per_m", computed)
+    dimensions = computed.get("dimensions", {}) if isinstance(computed.get("dimensions"), dict) else {}
+    return {
+        "record_id": normalize_text(record.get("record_id")),
+        "station_id": normalize_text(record.get("station_id")),
+        "station_name": normalize_text(station.get("name") or record.get("station_id")),
+        "website": normalize_text(station.get("website")),
+        "invite_url": normalize_text(station.get("invite_url")),
+        "notes": normalize_text(station.get("notes")),
+        "recharge_ratio": resolve_station_recharge_ratio(station, record),
+        "model_name": normalize_text(record.get("model_name")),
+        "group": normalize_text(record.get("group")),
+        "group_note": normalize_text(record.get("group_note")),
+        "original_price": build_original_price_text(record),
+        "multiplier": trim_decimal_text(computed.get("multiplier") or record.get("multiplier") or "1"),
+        "computed_price": build_computed_price_text(record, computed),
+        "summary_rmb_per_m": normalize_text(computed.get("summary", {}).get("rmb_per_m")),
+        "input_rmb_per_m": normalize_text((dimensions.get("input") or {}).get("rmb_per_m")),
+        "output_rmb_per_m": normalize_text((dimensions.get("output") or {}).get("rmb_per_m")),
+        "cache_read_rmb_per_m": normalize_text((dimensions.get("cache_read") or {}).get("rmb_per_m")),
+        "cache_write_rmb_per_m": normalize_text((dimensions.get("cache_write") or {}).get("rmb_per_m")),
+        "confidence_score": score,
+        "confidence_label": confidence_label(score),
+        "warnings": warnings,
+        "cheap_reasons": cheap_reasons,
+        "last_verified_at": iso_to_display(record_verified_at(station, record)),
+        "updated_at": iso_to_display(record.get("updated_at") or station.get("updated_at")),
+        "station_updated_at": iso_to_display(station.get("updated_at")),
+        "copy_text": computed.get("copy_text"),
+    }
+
+
+def build_dashboard_data(registry: Dict[str, Any]) -> Dict[str, Any]:
+    stations_by_id = {
+        normalize_text(station.get("station_id")): station
+        for station in registry.get("stations", [])
+    }
+    medians = model_summary_medians(registry)
+    records = []
+    for record in registry.get("price_records", []):
+        station = stations_by_id.get(normalize_text(record.get("station_id")), {})
+        if not station:
+            continue
+        records.append(dashboard_record_item(registry, station, record, medians))
+    models = sorted(unique_strings([record.get("model_name") for record in records]), key=lambda item: normalize_key(item))
+    groups = sorted(unique_strings([record.get("group") for record in records]), key=lambda item: normalize_key(item))
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "generated_at": generated_at,
+        "station_count": len(registry.get("stations", [])),
+        "record_count": len(records),
+        "models": models,
+        "groups": groups,
+        "records": records,
+    }
+
+
+def render_dashboard_html(data: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    title = normalize_text(payload.get("title")) or "站点价格实时雷达"
+    theme = "light" if normalize_text(payload.get("theme")).lower() == "light" else "dark"
+    data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="zh-CN" data-theme="{html_attr(theme)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #050b0a;
+      --ink: #effdf8;
+      --muted: #8fb2a7;
+      --line: rgba(119, 255, 218, .16);
+      --panel: rgba(9, 24, 22, .76);
+      --panel2: rgba(15, 37, 33, .9);
+      --mint: #4cf6c4;
+      --gold: #ffbf4d;
+      --red: #ff667a;
+      --green: #78eda8;
+      --shadow: 0 26px 80px rgba(0,0,0,.45);
+    }}
+    [data-theme="light"] {{
+      color-scheme: light;
+      --bg: #eef5f1;
+      --ink: #10231e;
+      --muted: #526a62;
+      --line: rgba(0, 118, 95, .17);
+      --panel: rgba(255,255,255,.78);
+      --panel2: rgba(255,255,255,.94);
+      --mint: #008f73;
+      --gold: #a96800;
+      --red: #b3263a;
+      --green: #0a7f46;
+      --shadow: 0 24px 70px rgba(9, 45, 36, .16);
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ background: var(--bg); }}
+    body {{
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Aptos", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 16% 8%, rgba(76,246,196,.18), transparent 30%),
+        radial-gradient(circle at 86% 12%, rgba(255,191,77,.16), transparent 26%),
+        linear-gradient(135deg, rgba(255,255,255,.055), transparent 34%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.036) 0 1px, transparent 1px 56px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 56px),
+        var(--bg);
+    }}
+    body::before {{
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,.2) 1px, transparent 1px);
+      background-size: 3px 3px;
+      opacity: .07;
+      pointer-events: none;
+    }}
+    a {{ color: var(--mint); text-underline-offset: 3px; }}
+    button, select, input {{
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.055);
+      color: var(--ink);
+      font: inherit;
+    }}
+    button {{ cursor: pointer; padding: 0 14px; transition: transform .18s ease, border-color .18s ease, background .18s ease; }}
+    button:hover {{ transform: translateY(-1px); border-color: var(--mint); }}
+    select option {{
+      background: #0f251f;
+      color: #effdf8;
+    }}
+    [data-theme="light"] select option {{
+      background: #ffffff;
+      color: #10231e;
+    }}
+    button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {{ outline: 3px solid rgba(76,246,196,.34); outline-offset: 2px; }}
+    .shell {{ width: min(1240px, calc(100% - 28px)); margin: 0 auto; padding: 30px 0 48px; }}
+    .hero {{
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 18px;
+      margin-bottom: 18px;
+      animation: rise .45s ease-out both;
+    }}
+    .panel, .card, .toolbar, .empty {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }}
+    .headline {{ position: relative; overflow: hidden; padding: 28px; }}
+    .headline::after {{
+      content: "";
+      position: absolute;
+      width: 320px;
+      height: 320px;
+      right: -120px;
+      top: -150px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      box-shadow: inset 0 0 54px rgba(76,246,196,.18);
+    }}
+    .eyebrow {{ margin: 0 0 12px; color: var(--mint); font-size: 12px; font-weight: 800; text-transform: uppercase; }}
+    h1 {{ margin: 0; max-width: 820px; font-size: clamp(32px, 6vw, 72px); line-height: .98; letter-spacing: 0; }}
+    .copy {{ margin: 18px 0 0; max-width: 780px; color: var(--muted); line-height: 1.65; font-size: 17px; }}
+    .stats {{ display: grid; gap: 12px; padding: 20px; background: var(--panel2); }}
+    .stat {{ border-bottom: 1px solid var(--line); padding-bottom: 12px; }}
+    .stat:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .stat span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .stat strong {{ display: block; margin-top: 4px; font-size: 30px; font-variant-numeric: tabular-nums; }}
+    .toolbar {{
+      position: sticky;
+      top: 10px;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) repeat(5, minmax(112px, auto)) minmax(92px, auto);
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      margin-bottom: 18px;
+    }}
+    .field {{ display: grid; gap: 6px; min-width: 0; }}
+    .field label {{ color: var(--muted); font-size: 12px; font-weight: 800; }}
+    .field input, .field select {{ width: 100%; padding: 0 12px; }}
+    .reset-field {{ align-self: end; }}
+    .reset-button {{
+      width: 100%;
+      color: var(--ink);
+      font-weight: 800;
+      background: linear-gradient(135deg, rgba(76,246,196,.12), rgba(255,191,77,.08));
+    }}
+    .board {{ display: grid; gap: 14px; }}
+    .card {{
+      position: relative;
+      overflow: hidden;
+      padding: 18px;
+      animation: cardIn .46s ease-out both;
+      animation-delay: var(--delay, 0ms);
+      transition: transform .2s ease, border-color .2s ease;
+    }}
+    .card:hover {{ transform: translateY(-3px); border-color: color-mix(in srgb, var(--mint) 48%, transparent); }}
+    .card.prime::before {{
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0 36%, rgba(76,246,196,.18) 49%, transparent 63%);
+      transform: translateX(-100%);
+      animation: scan 3.4s ease-in-out infinite;
+      pointer-events: none;
+    }}
+    .card-head {{ display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 12px; }}
+    .rank {{ margin: 0 0 4px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; }}
+    h2 {{ margin: 0; font-size: clamp(20px, 3vw, 30px); letter-spacing: 0; }}
+    .price {{ color: var(--mint); font-family: "Cascadia Mono", Consolas, monospace; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+    .detail-list {{ display: grid; gap: 8px; }}
+    .detail-row {{
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,.12);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }}
+    .detail-row b {{ color: var(--muted); font-size: 12px; }}
+    .detail-row strong {{ color: var(--ink); font-weight: 600; }}
+    .copy-price {{
+      position: relative;
+      cursor: pointer;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }}
+    .copy-price::after {{
+      content: "点击复制";
+      align-self: start;
+      justify-self: end;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--mint);
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(76,246,196,.07);
+    }}
+    .copy-price:hover {{ transform: translateY(-1px); border-color: color-mix(in srgb, var(--mint) 50%, transparent); background: rgba(76,246,196,.07); }}
+    .copy-price:focus-visible {{ outline: 3px solid rgba(76,246,196,.34); outline-offset: 2px; }}
+    .tags {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .tag {{ border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; font-size: 12px; background: rgba(255,255,255,.045); }}
+    .tag.ok {{ color: var(--green); }}
+    .tag.warn {{ color: var(--gold); }}
+    .tag.bad {{ color: var(--red); }}
+    .empty {{ min-height: 300px; display: grid; place-items: center; text-align: center; padding: 32px; }}
+    .empty h2 {{ margin: 0 0 8px; }}
+    .empty p {{ margin: 0; color: var(--muted); }}
+    .toast {{
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 60;
+      transform: translateY(16px);
+      opacity: 0;
+      pointer-events: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--ink);
+      font-weight: 900;
+      background: var(--panel2);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      transition: opacity .2s ease, transform .2s ease;
+    }}
+    .toast.show {{ opacity: 1; transform: translateY(0); }}
+    footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; text-align: center; }}
+    @keyframes rise {{ from {{ opacity: 0; transform: translateY(14px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    @keyframes cardIn {{ from {{ opacity: 0; transform: translateY(16px) scale(.99); }} to {{ opacity: 1; transform: translateY(0) scale(1); }} }}
+    @keyframes scan {{ 0%, 46% {{ transform: translateX(-100%); }} 70%, 100% {{ transform: translateX(100%); }} }}
+    @media (max-width: 980px) {{
+      .hero, .toolbar {{ grid-template-columns: 1fr; }}
+      .toolbar {{ position: static; }}
+      .detail-row {{ grid-template-columns: 1fr; gap: 5px; }}
+      .copy-price::after {{ justify-self: start; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }}
+    }}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="panel headline">
+        <p class="eyebrow">Cached Price Dashboard</p>
+        <h1>{html_escape(title)}</h1>
+        <p class="copy">这个页面是预生成缓存仪表盘。打开时不再调用 Python，模型、分组、排序和 TopN 都在浏览器本地完成。</p>
+      </div>
+      <aside class="panel stats">
+        <div class="stat"><span>站点数</span><strong id="stationCount">0</strong></div>
+        <div class="stat"><span>价格记录</span><strong id="recordCount">0</strong></div>
+        <div class="stat"><span>生成时间</span><strong id="generatedAt">-</strong></div>
+      </aside>
+    </section>
+    <section class="toolbar" aria-label="筛选工具栏">
+      <div class="field"><label for="search">搜索</label><input id="search" type="search" placeholder="站点、官网、备注、分组"></div>
+      <div class="field"><label for="model">模型</label><select id="model"></select></div>
+      <div class="field"><label for="group">分组</label><select id="group"></select></div>
+      <div class="field"><label for="metric">排序</label><select id="metric"></select></div>
+      <div class="field"><label for="viewMode">视图</label><select id="viewMode"><option value="station" selected>按站点</option><option value="record">按记录</option></select></div>
+      <div class="field"><label for="limit">TopN</label><select id="limit"><option>5</option><option selected>10</option><option>20</option><option>50</option><option value="9999">全部</option></select></div>
+      <div class="field reset-field"><button id="resetFilters" class="reset-button" type="button">重置</button></div>
+    </section>
+    <section id="board" class="board" aria-live="polite"></section>
+    <div id="toast" class="toast" role="status" aria-live="polite">已复制</div>
+    <footer>本页由 model-price-calculator 预生成 · 修改价格库后请刷新缓存页面</footer>
+  </main>
+  <script id="dashboard-data" type="application/json">{data_json}</script>
+  <script>
+    const dashboard = JSON.parse(document.getElementById('dashboard-data').textContent);
+    const state = {{ search: '', model: '', group: '', metric: 'summary_rmb_per_m', viewMode: 'station', limit: 10 }};
+    const metricLabels = {{
+      summary_rmb_per_m: '综合价',
+      input_rmb_per_m: '输入价',
+      output_rmb_per_m: '输出价',
+      cache_read_rmb_per_m: '缓存读取价'
+    }};
+    const byId = (id) => document.getElementById(id);
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char]));
+    const numberValue = (value) => {{
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+    }};
+    const safeLink = (url) => /^https?:\\/\\//i.test(url || '') ? `<a href="${{escapeHtml(url)}}" target="_blank" rel="noopener noreferrer">${{escapeHtml(url)}}</a>` : escapeHtml(url || '未记录');
+    function fillSelect(id, values, allLabel) {{
+      const select = byId(id);
+      select.innerHTML = `<option value="">${{allLabel}}</option>` + values.map((item) => `<option value="${{escapeHtml(item)}}">${{escapeHtml(item)}}</option>`).join('');
+    }}
+    function tagHtml(text) {{
+      const klass = /低|过期|异常|未记录/.test(text) ? 'bad' : 'warn';
+      return `<span class="tag ${{klass}}">${{escapeHtml(text)}}</span>`;
+    }}
+    let toastTimer = null;
+    function showToast(message) {{
+      const toast = byId('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 1400);
+    }}
+    function legacyCopyText(value) {{
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      let copied = false;
+      try {{
+        copied = document.execCommand('copy');
+      }} finally {{
+        textarea.remove();
+      }}
+      return copied;
+    }}
+    async function copyText(text) {{
+      const value = String(text || '').trim();
+      if (!value) return;
+      let copied = false;
+      try {{
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        }}
+      }} catch (error) {{
+        copied = false;
+      }}
+      if (!copied) {{
+        copied = legacyCopyText(value);
+      }}
+      if (copied) {{
+        showToast('已复制');
+      }} else {{
+        showToast('复制失败，请手动选中复制');
+      }}
+    }}
+    function copyPriceRow(record) {{
+      const text = record.copy_text || record.original_price || '';
+      return `<div class="detail-row copy-price" role="button" tabindex="0" data-copy="${{escapeHtml(text)}}" title="点击复制文案"><b>原始价格</b><strong>${{escapeHtml(record.original_price || '-')}}</strong></div>`;
+    }}
+    function representativeRecords(records) {{
+      if (state.viewMode === 'record') return records;
+      const grouped = new Map();
+      for (const record of records) {{
+        const stationRecords = grouped.get(record.station_id) || [];
+        stationRecords.push(record);
+        grouped.set(record.station_id, stationRecords);
+      }}
+      return Array.from(grouped.values()).map((stationRecords) => {{
+        const representative = stationRecords.reduce((best, record) => {{
+          const bestValue = numberValue(best[state.metric]);
+          const recordValue = numberValue(record[state.metric]);
+          return recordValue < bestValue ? record : best;
+        }}, stationRecords[0]);
+        return {{ ...representative, station_record_count: stationRecords.length }};
+      }});
+    }}
+    function render() {{
+      const query = state.search.trim().toLowerCase();
+      let records = dashboard.records.filter((record) => {{
+        if (state.model && record.model_name !== state.model) return false;
+        if (state.group && record.group !== state.group) return false;
+        if (!query) return true;
+        return [record.station_name, record.website, record.invite_url, record.notes, record.model_name, record.group, record.group_note]
+          .some((value) => String(value || '').toLowerCase().includes(query));
+      }});
+      records = representativeRecords(records);
+      records.sort((left, right) => {{
+        return numberValue(left[state.metric]) - numberValue(right[state.metric]);
+      }});
+      records = records.slice(0, Number(state.limit));
+      const board = byId('board');
+      if (!records.length) {{
+        board.innerHTML = '<section class="empty"><div><h2>暂无命中记录</h2><p>换一个模型、分组或搜索词试试。</p></div></section>';
+        return;
+      }}
+      board.innerHTML = records.map((record, index) => {{
+        const warningItems = record.warnings || [];
+        const warnings = warningItems.map(tagHtml).join('');
+        const warningRow = warningItems.length ? `<div class="detail-row"><b>提醒</b><div class="tags">${{warnings}}</div></div>` : '';
+        return `<article class="card ${{index === 0 ? 'prime' : ''}}" style="--delay:${{Math.min(index * 35, 420)}}ms">
+          <header class="card-head">
+            <div><p class="rank">${{index === 0 ? 'Prime' : `No.${{index + 1}}`}}</p><h2>${{escapeHtml(record.station_name)}}${{state.viewMode === 'station' ? ` · ${{record.station_record_count || 1}} 条命中` : ''}}</h2></div>
+            <div class="price">${{escapeHtml(record[state.metric] || record.summary_rmb_per_m || '-')}}/M</div>
+          </header>
+          <div class="detail-list">
+            <div class="detail-row"><b>官网</b><strong>${{safeLink(record.website)}}</strong></div>
+            <div class="detail-row"><b>邀请链接</b><strong>${{safeLink(record.invite_url)}}</strong></div>
+            <div class="detail-row"><b>站点备注</b><strong>${{escapeHtml(record.notes || '无备注')}}</strong></div>
+            <div class="detail-row"><b>模型/分组</b><strong>${{escapeHtml(record.model_name)}} / ${{escapeHtml(record.group)}}</strong></div>
+            <div class="detail-row"><b>分组备注</b><strong>${{escapeHtml(record.group_note || '-')}}</strong></div>
+            <div class="detail-row"><b>充值比</b><strong>${{escapeHtml(record.recharge_ratio || '1:1')}}</strong></div>
+            <div class="detail-row"><b>倍率</b><strong>${{escapeHtml(record.multiplier)}}</strong></div>
+            ${{copyPriceRow(record)}}
+            <div class="detail-row"><b>折算价格</b><strong>${{escapeHtml(record.computed_price)}}</strong></div>
+            ${{warningRow}}
+            <div class="detail-row"><b>更新时间</b><strong>${{escapeHtml(record.updated_at || record.station_updated_at || '-')}}</strong></div>
+          </div>
+        </article>`;
+      }}).join('');
+      board.querySelectorAll('[data-copy]').forEach((item) => {{
+        item.addEventListener('click', () => copyText(item.dataset.copy));
+        item.addEventListener('keydown', (event) => {{
+          if (event.key === 'Enter' || event.key === ' ') {{
+            event.preventDefault();
+            copyText(item.dataset.copy);
+          }}
+        }});
+      }});
+    }}
+    function bind() {{
+      byId('stationCount').textContent = dashboard.station_count;
+      byId('recordCount').textContent = dashboard.record_count;
+      byId('generatedAt').textContent = dashboard.generated_at;
+      fillSelect('model', dashboard.models, '全部模型');
+      fillSelect('group', dashboard.groups, '全部分组');
+      byId('metric').innerHTML = Object.entries(metricLabels).map(([value, label]) => `<option value="${{value}}">${{label}}</option>`).join('');
+      ['model', 'group', 'metric', 'viewMode', 'limit'].forEach((id) => byId(id).addEventListener('change', (event) => {{ state[id] = event.target.value; render(); }}));
+      byId('search').addEventListener('input', (event) => {{ state.search = event.target.value; render(); }});
+      byId('resetFilters').addEventListener('click', () => {{
+        state.search = '';
+        state.model = '';
+        state.group = '';
+        state.metric = 'summary_rmb_per_m';
+        state.viewMode = 'station';
+        state.limit = 10;
+        byId('search').value = '';
+        byId('model').value = '';
+        byId('group').value = '';
+        byId('metric').value = state.metric;
+        byId('viewMode').value = state.viewMode;
+        byId('limit').value = String(state.limit);
+        render();
+      }});
+      render();
+    }}
+    bind();
+  </script>
+</body>
+</html>"""
+
+
+def write_dashboard_files(registry: Dict[str, Any], payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload = payload or {}
+    html_path = Path(normalize_text(payload.get("output_file")) or DASHBOARD_HTML_PATH)
+    meta_path = html_path.with_suffix(".meta.json") if html_path != DASHBOARD_HTML_PATH else DASHBOARD_META_PATH
+    data = build_dashboard_data(registry)
+    html_text = render_dashboard_html(data, payload)
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    html_path.write_text(html_text, encoding="utf-8")
+    meta = {
+        "generated_at": data.get("generated_at"),
+        "html_file": str(html_path),
+        "station_count": data.get("station_count"),
+        "record_count": data.get("record_count"),
+    }
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "html_file": str(html_path),
+        "meta_file": str(meta_path),
+        "generated_at": data.get("generated_at"),
+        "station_count": data.get("station_count"),
+        "record_count": data.get("record_count"),
+    }
+
+
+def dashboard_html_status(registry: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    html_path = Path(normalize_text(payload.get("output_file")) or DASHBOARD_HTML_PATH)
+    if not html_path.exists() or normalize_bool(payload.get("refresh")):
+        dashboard = write_dashboard_files(registry, payload)
+        dashboard["refreshed"] = True
+        return dashboard
+    result = {
+        "html_file": str(html_path),
+        "exists": True,
+        "refreshed": False,
+    }
+    meta_path = html_path.with_suffix(".meta.json") if html_path != DASHBOARD_HTML_PATH else DASHBOARD_META_PATH
+    if meta_path.exists():
+        try:
+            result["meta"] = load_json_file(str(meta_path))
+        except Exception:
+            result["meta_error"] = "缓存元数据无法读取"
+    return result
+
+
+def refresh_dashboard_after_write(registry: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    return result
+
+
+def build_rank_station_html(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    rank_result, views, station_ids = collect_rank_station_html_views(registry, query)
+    html_text = render_station_html_document(views, query, rank_result.get("filters", {}), "rank")
+    result = {
+        "count": len(views),
+        "station_ids": station_ids,
+        "filters": rank_result.get("filters", {}),
+        "html": html_text,
+    }
+    return maybe_write_html_output(result, query)
+
+
+def build_station_html(registry: Dict[str, Any], query: Dict[str, Any]) -> Dict[str, Any]:
+    views = collect_station_html_views(registry, query)
+    filters = {
+        "model_name": query.get("model_name") or None,
+        "group": query.get("group") or None,
+        "metric": query.get("sort_by") or query.get("metric") or "summary_rmb_per_m",
+        "direction": normalize_text(query.get("direction") or "asc").lower(),
+        "include_terms": ensure_list(query.get("include_terms") or query.get("include") or query.get("包含")),
+        "exclude_terms": ensure_list(query.get("exclude_terms") or query.get("exclude") or query.get("排除")),
+        "min_confidence": normalize_confidence(query.get("min_confidence") or query.get("最低可信度")),
+    }
+    html_text = render_station_html_document(views, query, filters, "stations")
+    result = {
+        "count": len(views),
+        "html": html_text,
+    }
+    return maybe_write_html_output(result, query)
 
 
 def build_leaderboard_copy(rank_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -854,15 +4082,15 @@ def main() -> None:
     parser.add_argument(
         "command",
         choices=[
-            "search",
             "upsert",
-            "rank",
-            "list",
-            "leaderboard",
+            "upsert-probe-api",
+            "delete-probe-api",
+            "upsert-balance-config",
+            "guess-balance-provider-types",
+            "upsert-daily-news",
             "update-station",
             "patch-record",
-            "stations-md",
-            "cleanup-test",
+            "delete-records",
         ],
         help="Registry action",
     )
@@ -870,26 +4098,28 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = load_json_file(args.json_file)
-    registry = load_registry()
 
-    if args.command == "search":
-        result = search_registry(registry, payload)
-    elif args.command == "upsert":
-        result = upsert_record(registry, payload)
-    elif args.command == "rank":
-        result = rank_records(registry, payload)
-    elif args.command == "leaderboard":
-        result = build_leaderboard_copy(rank_records(registry, payload))
-    elif args.command == "update-station":
-        result = update_station_fields(registry, payload)
-    elif args.command == "patch-record":
-        result = patch_record_fields(registry, payload)
-    elif args.command == "stations-md":
-        result = build_station_markdown(registry, payload)
-    elif args.command == "cleanup-test":
-        result = cleanup_test_stations(registry)
-    else:
-        result = list_registry(registry, payload)
+    with registry_write_lock():
+        if args.command == "upsert-daily-news":
+            result = upsert_daily_news(payload)
+        else:
+            registry = load_registry()
+            if args.command == "upsert":
+                result = upsert_record(registry, payload)
+            elif args.command == "upsert-probe-api":
+                result = upsert_probe_api(registry, payload)
+            elif args.command == "delete-probe-api":
+                result = delete_probe_api(registry, payload)
+            elif args.command == "upsert-balance-config":
+                result = upsert_balance_config_command(registry, payload)
+            elif args.command == "guess-balance-provider-types":
+                result = guess_balance_provider_types(payload)
+            elif args.command == "update-station":
+                result = update_station_fields(registry, payload)
+            elif args.command == "patch-record":
+                result = patch_record_fields(registry, payload)
+            else:
+                result = delete_records(registry, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

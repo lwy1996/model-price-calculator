@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from extract_model_price import extract_payload
-from site_price_registry import load_json_file, load_registry, rank_records, upsert_record
+from registry_write_lock import registry_write_lock
+from site_price_registry import load_json_file, load_registry, upsert_record
 
 
 def read_text(path: str) -> str:
@@ -24,7 +25,11 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
             "alias": args.alias,
             "name": args.station_name,
             "website": args.website,
-            "api_base_url": args.api_base_url,
+            "invite_url": args.invite_url,
+            "is_checked": args.is_checked,
+            "checked_at": args.checked_at,
+            "last_check_latency_seconds": args.last_check_latency_seconds,
+            "admin_notes": args.admin_notes,
             "notes": args.notes,
         }
     }
@@ -44,11 +49,15 @@ def load_input(args: argparse.Namespace) -> Dict[str, Any]:
         raw["recharge_ratio"] = args.recharge_ratio
     if args.sale_price:
         raw["sale_price"] = args.sale_price
+    if args.group_note:
+        raw["group_note"] = args.group_note
     return raw
 
 
 def build_upsert_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
     station = raw.get("station") or {}
+    if raw.get("recharge_ratio"):
+        station["recharge_ratio"] = raw["recharge_ratio"]
     pricing = raw.get("pricing")
     if pricing is None:
         extracted = extract_payload(raw.get("raw_text") or "")
@@ -60,10 +69,10 @@ def build_upsert_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
         pricing["group"] = raw["group"]
     if raw.get("multiplier") is not None:
         pricing["multiplier"] = raw["multiplier"]
-    if raw.get("recharge_ratio"):
-        pricing["recharge_ratio"] = raw["recharge_ratio"]
     if raw.get("sale_price"):
         pricing["sale_price"] = raw["sale_price"]
+    if raw.get("group_note"):
+        pricing["group_note"] = raw["group_note"]
 
     return {
         "station": station,
@@ -81,34 +90,29 @@ def main() -> None:
     parser.add_argument("--alias", help="Site alias")
     parser.add_argument("--station-name", help="Site display name")
     parser.add_argument("--website", help="Site website")
-    parser.add_argument("--api-base-url", help="Site API base URL")
+    parser.add_argument("--invite-url", help="Site invite URL")
+    parser.add_argument("--is-checked", action="store_true", help="Mark station as checked")
+    parser.add_argument("--checked-at", help="Station checked time")
+    parser.add_argument("--last-check-latency-seconds", type=int, help="Last check latency in seconds")
     parser.add_argument("--group", help="Model group")
     parser.add_argument("--model-name", help="Model name override")
     parser.add_argument("--multiplier", type=float, help="Multiplier override")
     parser.add_argument("--recharge-ratio", help="Recharge ratio override")
     parser.add_argument("--sale-price", help="Sale price override")
+    parser.add_argument("--group-note", help="Per-group note override")
+    parser.add_argument("--admin-notes", help="Station admin notes")
     parser.add_argument("--notes", help="Station notes")
     args = parser.parse_args()
 
     raw = load_input(args)
     upsert_payload = build_upsert_payload(raw)
-    registry = load_registry()
-    upsert_result = upsert_record(registry, upsert_payload)
-
-    rank_payload = {
-        "model_name": upsert_result["record"]["model_name"],
-        "group": upsert_result["record"]["group"],
-        "sort_by": "summary_rmb_per_m",
-        "direction": "asc",
-    }
-    rank_result = rank_records(load_registry(), rank_payload)
+    with registry_write_lock():
+        registry = load_registry()
+        upsert_result = upsert_record(registry, upsert_payload)
 
     print(
         json.dumps(
-            {
-                "upsert": upsert_result,
-                "rank": rank_result,
-            },
+            upsert_result,
             ensure_ascii=False,
             indent=2,
         )

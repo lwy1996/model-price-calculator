@@ -3,20 +3,20 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from extract_model_price import extract_payload
 from ingest_site_price import build_upsert_payload
+from model_catalog import model_defaults
+from registry_write_lock import registry_write_lock
 from site_price_registry import load_registry, upsert_record
-
-
-DRAFTS_PATH = Path(__file__).resolve().parent.parent / "assets" / "site-price-drafts.json"
+from mysql_storage import load_drafts as load_mysql_drafts, save_drafts as save_mysql_drafts
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(BEIJING_TZ).replace(microsecond=0).isoformat()
 
 
 def load_json_file(path: str) -> Dict[str, Any]:
@@ -28,15 +28,11 @@ def load_json_file(path: str) -> Dict[str, Any]:
 
 
 def load_drafts() -> Dict[str, Any]:
-    if not DRAFTS_PATH.exists():
-        return {"version": 1, "drafts": []}
-    return load_json_file(str(DRAFTS_PATH))
+    return load_mysql_drafts()
 
 
 def save_drafts(data: Dict[str, Any]) -> None:
-    DRAFTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DRAFTS_PATH, "w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=2)
+    save_mysql_drafts(data)
 
 
 def normalize_text(value: Any) -> str:
@@ -58,7 +54,7 @@ def resolve_draft_id(payload: Dict[str, Any]) -> str:
         return draft_id
 
     station = payload.get("station") or {}
-    for key in ("alias", "name", "station_name", "website", "api_base_url", "api_url"):
+    for key in ("alias", "name", "station_name", "website"):
         value = normalize_text(station.get(key))
         if value:
             return value.lower()
@@ -98,7 +94,7 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
             extracted.pop("model_name", None)
         patch["pricing"] = merge_non_empty(patch.get("pricing") or {}, extracted)
 
-    for key in ("model_name", "group", "multiplier", "recharge_ratio", "sale_price", "notes"):
+    for key in ("model_name", "group", "group_note", "multiplier", "recharge_ratio", "sale_price", "notes", "admin_notes", "last_check_latency_seconds"):
         if payload.get(key) not in (None, ""):
             patch[key] = payload[key]
 
@@ -108,12 +104,21 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
     if patch.get("group"):
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["group"] = patch["group"]
+    if patch.get("group_note"):
+        patch["pricing"] = patch.get("pricing") or {}
+        patch["pricing"]["group_note"] = patch["group_note"]
     if patch.get("multiplier") is not None:
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["multiplier"] = patch["multiplier"]
     if patch.get("recharge_ratio"):
-        patch["pricing"] = patch.get("pricing") or {}
-        patch["pricing"]["recharge_ratio"] = patch["recharge_ratio"]
+        patch["station"] = patch.get("station") or {}
+        patch["station"]["recharge_ratio"] = patch["recharge_ratio"]
+    if patch.get("admin_notes") not in (None, ""):
+        patch["station"] = patch.get("station") or {}
+        patch["station"]["admin_notes"] = patch["admin_notes"]
+    if patch.get("last_check_latency_seconds") not in (None, ""):
+        patch["station"] = patch.get("station") or {}
+        patch["station"]["last_check_latency_seconds"] = patch["last_check_latency_seconds"]
     if patch.get("sale_price"):
         patch["pricing"] = patch.get("pricing") or {}
         patch["pricing"]["sale_price"] = patch["sale_price"]
@@ -124,33 +129,39 @@ def build_patch(payload: Dict[str, Any]) -> Dict[str, Any]:
 def required_state(draft: Dict[str, Any]) -> Dict[str, Any]:
     station = draft.get("station") or {}
     pricing = draft.get("pricing") or {}
+    defaults = model_defaults(pricing.get("model_name"))
 
     has_station_identity = any(
         normalize_text(station.get(key))
-        for key in ("alias", "name", "station_name", "website", "api_base_url", "api_url")
+        for key in ("alias", "name", "station_name", "website")
     )
     has_model = bool(normalize_text(pricing.get("model_name")))
-    has_input = bool(normalize_text(pricing.get("input_price")) or normalize_text(pricing.get("输入价格")))
+    has_input = bool(
+        normalize_text(pricing.get("input_price"))
+        or normalize_text(pricing.get("输入价格"))
+        or normalize_text(defaults.get("input_price"))
+    )
     has_output = bool(
         normalize_text(pricing.get("output_price"))
         or normalize_text(pricing.get("输出价格"))
         or normalize_text(pricing.get("补全价格"))
+        or normalize_text(defaults.get("output_price"))
     )
 
     missing = []
     next_questions = []
     if not has_station_identity:
         missing.append("station_identity")
-        next_questions.append("先给我一个能识别这个站的信息：站点别名、官网地址、或 API 地址，三选一即可。")
+        next_questions.append("先给我一个能识别这个站的信息：站点别名或官网地址，二选一即可。")
     if not has_model:
         missing.append("model_name")
         next_questions.append("这个站你要记录哪个模型？如果有分组也可以一起告诉我。")
     if not has_input:
         missing.append("input_price")
-        next_questions.append("还缺输入价格，你直接说数值也行，比如 2.4 或 $2.4 / 1M。")
+        next_questions.append("还缺输入价格，你直接说数值也行，比如 2.4 或 $2.4 / 1M；如果这个模型走官方默认价，也可以直接说明。")
     if not has_output:
         missing.append("output_price")
-        next_questions.append("还缺输出价格，你直接说数值也行，比如 14.5 或 $14.5 / 1M。")
+        next_questions.append("还缺输出价格，你直接说数值也行，比如 14.5 或 $14.5 / 1M；如果这个模型走官方默认价，也可以直接说明。")
 
     return {
         "is_ready": not missing,
@@ -233,7 +244,12 @@ def commit_draft(data: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any
 
     data["drafts"] = [item for item in data.get("drafts", []) if item.get("draft_id") != draft_id]
     save_drafts(data)
-    return {"draft_id": draft_id, "committed": True, "upsert": upsert_result}
+    return {
+        "draft_id": draft_id,
+        "committed": True,
+        "upsert": upsert_result,
+        "summary": upsert_result.get("summary"),
+    }
 
 
 def main() -> None:
@@ -243,16 +259,19 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = load_json_file(args.json_file)
-    data = load_drafts()
 
-    if args.command == "merge":
-        result = merge_draft(data, payload)
-    elif args.command == "show":
+    if args.command == "show":
+        data = load_drafts()
         result = show_draft(data, payload)
-    elif args.command == "commit":
-        result = commit_draft(data, payload)
     else:
-        result = clear_draft(data, payload)
+        with registry_write_lock():
+            data = load_drafts()
+            if args.command == "merge":
+                result = merge_draft(data, payload)
+            elif args.command == "commit":
+                result = commit_draft(data, payload)
+            else:
+                result = clear_draft(data, payload)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

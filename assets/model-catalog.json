@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "canonical": "gpt-5.4",
+      "aliases": [
+        "5.4",
+        "54",
+        "gpt5.4",
+        "gpt-5.4",
+        "gpt-5-4"
+      ],
+      "defaults": {
+        "input_price": "2.50 / 1M",
+        "cache_read_price": "0.25 / 1M",
+        "output_price": "15.00 / 1M"
+      }
+    },
+    {
+      "canonical": "gpt-5.5",
+      "aliases": [
+        "5.5",
+        "55",
+        "gpt5.5",
+        "gpt-5.5",
+        "gpt-5-5"
+      ],
+      "defaults": {
+        "input_price": "5.00 / 1M",
+        "cache_read_price": "0.50 / 1M",
+        "output_price": "30.00 / 1M"
+      }
+    },
+    {
+      "canonical": "gpt-5.4-mini",
+      "aliases": [
+        "mini",
+        "5.4 mini",
+        "54 mini",
+        "gpt5.4mini",
+        "gpt-5.4-mini",
+        "gpt-5-4-mini"
+      ],
+      "defaults": {
+        "input_price": "0.75 / 1M",
+        "cache_read_price": "0.075 / 1M",
+        "output_price": "4.50 / 1M"
+      }
+    }
+  ]
+}

@@ -7,8 +7,17 @@ import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
+from model_catalog import canonical_model_name, model_defaults
+
 
 FOUR_DP = Decimal("0.0001")
+PRICE_FIELD_KEYS = {
+    "input_price": ("input", "input_price", "输入价格"),
+    "output_price": ("output", "output_price", "补全价格", "输出价格"),
+    "cache_price": ("cache", "cache_price", "缓存价格"),
+    "cache_read_price": ("cache_read", "cache_read_price", "缓存读取价格"),
+    "cache_write_price": ("cache_write", "cache_write_price", "缓存创建价格"),
+}
 
 
 def quantize_4(value: Decimal) -> Decimal:
@@ -100,6 +109,22 @@ def must_get(data: Dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def apply_official_model_defaults(payload: Dict[str, Any]) -> Dict[str, Any]:
+    resolved = dict(payload)
+    model_name = str(must_get(resolved, "model_name", "模型名称") or "gpt5.4")
+    official = model_defaults(model_name)
+    if not official:
+        return resolved
+
+    resolved["model_name"] = official.get("model_name") or canonical_model_name(model_name)
+    for field_name, keys in PRICE_FIELD_KEYS.items():
+        current = must_get(resolved, *keys)
+        if current in (None, "") and field_name in official:
+            primary_key = keys[0]
+            resolved[primary_key] = official[field_name]
+    return resolved
+
+
 def load_payload(raw: str) -> Dict[str, Any]:
     payload = json.loads(raw)
     if not isinstance(payload, dict):
@@ -113,6 +138,7 @@ def load_payload_from_file(path: str) -> Dict[str, Any]:
 
 
 def compute(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = apply_official_model_defaults(payload)
     model_name = str(must_get(payload, "model_name", "模型名称") or "gpt5.4")
     group = str(must_get(payload, "group", "分组") or "")
 

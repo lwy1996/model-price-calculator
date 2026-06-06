@@ -8,10 +8,33 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from site_price_registry import load_registry, upsert_record
+from registry_write_lock import registry_write_lock
+from site_price_registry import build_write_summary, load_registry, upsert_record
 
 
-SECTION_KEYWORDS = {"站点名称", "官网", "API", "倍率", "备注", "充值比"}
+SECTION_KEYWORDS = {
+    "站点名称",
+    "官网",
+    "邀请链接",
+    "是否已检测",
+    "检测时间",
+    "倍率",
+    "备注",
+    "充值比",
+    "分组备注",
+    "项目类型",
+    "余额 Base URL",
+    "Access Token",
+    "User ID",
+    "启用状态",
+    "API 名称",
+    "API Base URL",
+    "API Key",
+    "绑定分组",
+    "价格分组",
+    "标准模型名",
+    "请求模型名",
+}
 
 
 def normalize_text(value: Any) -> str:
@@ -44,51 +67,164 @@ def read_text(path: str) -> str:
         return file.read()
 
 
+def extract_labeled_value(text: str, labels: List[str]) -> str:
+    for label in labels:
+        pattern = re.compile(rf"(?mi)^\s*{re.escape(label)}[:：]\s*(.+)$")
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
 def parse_station_info(text: str) -> Dict[str, Any]:
     station: Dict[str, Any] = {}
-    patterns = {
-        "name": r"站点名称[:：]\s*(.+)",
-        "website": r"官网[:：]\s*(.+)",
-        "api_base_url": r"API[:：]\s*(.+)",
-        "notes": r"备注[:：]\s*(.+)",
+    field_aliases = {
+        "name": ["站点名称"],
+        "website": ["官网"],
+        "invite_url": ["邀请链接", "邀请地址"],
+        "is_checked": ["是否已检测", "是否检测", "已检测"],
+        "checked_at": ["检测时间", "检查时间"],
+        "notes": ["备注", "站点备注"],
+        "provider_type": ["项目类型"],
+        "balance_base_url": ["余额 Base URL"],
+        "access_token": ["Access Token"],
+        "user_id": ["User ID"],
+        "probe_api_name": ["API 名称"],
+        "probe_api_base_url": ["API Base URL"],
+        "probe_api_key": ["API Key"],
+        "probe_group_name": ["绑定分组", "价格分组", "探测分组"],
+        "canonical_model_name": ["标准模型名"],
+        "request_model_name": ["请求模型名"],
     }
-    for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.I)
-        if match:
-            station[key] = match.group(1).strip()
+    for key, labels in field_aliases.items():
+        value = extract_labeled_value(text, labels)
+        if value:
+            station[key] = value
 
+    checked_flag = normalize_text(station.get("is_checked")).lower()
+    if checked_flag in {"1", "true", "yes", "y", "已检测", "是"}:
+        station["is_checked"] = True
+    elif checked_flag in {"0", "false", "no", "n", "未检测", "否"}:
+        station["is_checked"] = False
     if station.get("name"):
         station["alias"] = station["name"]
     return station
 
 
-def parse_group_multipliers(text: str) -> Dict[str, float]:
-    match = re.search(r"倍率[:：]\s*(.+)", text, re.I)
+def parse_group_note(text: str) -> str:
+    match = re.search(r"分组备注[:：]\s*(.+)", text, re.I)
     if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def locate_group_config_line(text: str) -> str:
+    candidate = extract_labeled_value(text, ["分组/倍率/备注/API Key", "分组/倍率/备注", "分组倍率备注", "倍率", "分组"])
+    return candidate
+
+
+def extract_group_config_block(text: str) -> str:
+    pattern = re.compile(r"(?mi)^[ \t]*(分组/倍率/备注/API Key|分组/倍率/备注|分组倍率备注|倍率|分组)[:：][ \t]*(.*)$")
+    match = pattern.search(text)
+    if not match:
+        return ""
+
+    lines = []
+    first_value = match.group(2).strip()
+    if first_value:
+        lines.append(first_value)
+
+    for line in text[match.end() :].splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if lines:
+                break
+            continue
+        if re.match(r"^\s*[^:：]+[:：]", stripped):
+            break
+        if re.match(r"^gpt-[A-Za-z0-9.\-]+(?:\s+.*)?$", stripped, re.I):
+            break
+        lines.append(stripped)
+
+    return "\n".join(lines).strip()
+
+
+def parse_group_configs(text: str) -> Dict[str, Dict[str, Any]]:
+    block = extract_group_config_block(text) or locate_group_config_line(text)
+    if not block:
         return {}
 
-    line = match.group(1).strip()
-    results: Dict[str, float] = {}
-    for group, value in re.findall(r"([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组\s*([0-9]+(?:\.[0-9]+)?)", line, re.I):
-        results[group.lower()] = float(value)
+    results: Dict[str, Dict[str, Any]] = {}
+    pattern = re.compile(
+        r"(?m)^\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)(?:\s*分组)?\s+([0-9]+(?:\.[0-9]+)?)\s*倍?(?:\(([^()]*)\))?(?:\s+(.*))?\s*$",
+        re.I,
+    )
+    for match in pattern.finditer(block):
+        group, value, note, tail = match.groups()
+        note_text = normalize_text(" ".join(part for part in [note, tail] if part))
+        key_match = re.search(r"(?:api[_ -]?key|key|密钥)\s*[=:：]\s*([^\s,，;；)）]+)", note_text, re.I)
+        results[group.lower()] = {
+            "multiplier": float(value),
+            "group_note": normalize_text(re.sub(r"(?:api[_ -]?key|key|密钥)\s*[=:：]\s*[^\s,，;；)）]+", "", note_text, flags=re.I)),
+            "api_key": key_match.group(1) if key_match else "",
+        }
 
     if not results:
-        numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", line)
+        numeric = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*倍?\s*", block)
         if numeric:
-            results["default"] = float(numeric.group(1))
+            results["default"] = {
+                "multiplier": float(numeric.group(1)),
+                "group_note": "",
+            }
     return results
 
 
+def parse_group_multipliers(text: str) -> Dict[str, Dict[str, Any]]:
+    return {
+        group: {
+            "multiplier": config.get("multiplier", 1.0),
+            "api_key": config.get("api_key") or "",
+        }
+        for group, config in parse_group_configs(text).items()
+    }
+
+
+def parse_group_notes(text: str) -> Dict[str, str]:
+    configs = parse_group_configs(text)
+    if configs:
+        return {
+            group: normalize_text(config.get("group_note"))
+            for group, config in configs.items()
+            if normalize_text(config.get("group_note"))
+        }
+
+    note = parse_group_note(text)
+    scoped_group = detect_declared_group_scope(text)
+    if note and scoped_group:
+        return {scoped_group: note}
+    return {}
+
+
 def parse_recharge_ratio(text: str) -> str:
-    match = re.search(r"充值比[:：]\s*([0-9.]+\s*:\s*[0-9.]+)", text, re.I)
-    if not match:
+    raw_value = extract_labeled_value(text, ["充值比"])
+    if not raw_value:
         return "1:1"
-    return match.group(1).replace(" ", "")
+    match = re.search(r"([0-9.]+\s*:\s*[0-9.]+)", raw_value, re.I)
+    if match:
+        return match.group(1).replace(" ", "")
+    numeric = re.search(r"([0-9]+(?:\.[0-9]+)?)", raw_value)
+    if not numeric:
+        return "1:1"
+    value = numeric.group(1)
+    return f"1:{value}"
 
 
 def is_post_multiplier_pricing(text: str) -> bool:
     keywords = [
         "倍率后的价格",
+        "计算倍率后的",
+        "计算倍率后的价格",
+        "计算倍率后的价格信息",
         "以下都是倍率后的价格",
         "下面都是倍率后的价格",
         "以下价格都是倍率后的",
@@ -103,6 +239,7 @@ def detect_declared_group_scope(text: str) -> str:
         r"以下为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
         r"下面都是\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
         r"下面为\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格",
+        r"^\s*([A-Za-z0-9_\-\u4e00-\u9fa5]+)\s*分组下.*?价格\s*$",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.I)
@@ -123,7 +260,7 @@ def parse_price_fields(text: str) -> Dict[str, str]:
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.I)
         if match:
-            fields[key] = match.group(1).replace(" ", "")
+            fields[key] = re.sub(r"\s+", "", match.group(1))
     return fields
 
 
@@ -139,16 +276,26 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
     lines = text.splitlines(keepends=True)
     offset = 0
     boundaries: List[Dict[str, Any]] = []
-    header_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
+    header_pattern = re.compile(r"^(gpt-[A-Za-z0-9.\-]+)(?:\s+(.*))?$", re.I)
+    active_group_scope = ""
 
     for line in lines:
         stripped = line.strip()
-        if stripped and stripped not in SECTION_KEYWORDS and header_pattern.fullmatch(stripped):
+        declared_group_scope = detect_declared_group_scope(stripped)
+        if declared_group_scope:
+            active_group_scope = declared_group_scope
+            offset += len(line)
+            continue
+        header_match = header_pattern.fullmatch(stripped) if stripped and stripped not in SECTION_KEYWORDS else None
+        if header_match:
+            inline_body = normalize_text(header_match.group(2))
             boundaries.append(
                 {
-                    "model_name": stripped,
+                    "model_name": header_match.group(1),
                     "start": offset,
                     "end": offset + len(line),
+                    "scoped_group": active_group_scope,
+                    "inline_body": inline_body,
                 }
             )
         offset += len(line)
@@ -161,10 +308,15 @@ def split_model_sections(text: str) -> Tuple[str, List[Dict[str, Any]]]:
     for index, boundary in enumerate(boundaries):
         body_start = boundary["end"]
         body_end = boundaries[index + 1]["start"] if index + 1 < len(boundaries) else len(text)
+        body = text[body_start:body_end].strip()
+        inline_body = normalize_text(boundary.get("inline_body"))
+        if inline_body:
+            body = f"{inline_body}\n{body}".strip()
         sections.append(
             {
                 "model_name": boundary["model_name"],
-                "body": text[body_start:body_end].strip(),
+                "body": body,
+                "scoped_group": boundary.get("scoped_group", ""),
             }
         )
     return preamble, sections
@@ -174,9 +326,11 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
     preamble, sections = split_model_sections(text)
     global_context = {
         "group_multipliers": parse_group_multipliers(preamble),
-        "recharge_ratio": parse_recharge_ratio(preamble),
+        "group_notes": parse_group_notes(preamble),
+        "recharge_ratio": parse_recharge_ratio(text),
         "post_multiplier_pricing": is_post_multiplier_pricing(preamble),
         "scoped_group": detect_declared_group_scope(preamble),
+        "group_note": parse_group_note(preamble),
         "price_fields": parse_price_fields(preamble),
     }
 
@@ -187,12 +341,17 @@ def parse_model_blocks(text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]
         model_data: Dict[str, Any] = {
             "model_name": section["model_name"],
             "group_multipliers": parse_group_multipliers(body) or global_context["group_multipliers"],
+            "group_notes": parse_group_notes(body) or global_context["group_notes"],
             "recharge_ratio": parse_recharge_ratio(body) if re.search(r"充值比[:：]", body, re.I) else global_context["recharge_ratio"],
             "post_multiplier_pricing": is_post_multiplier_pricing(body) or global_context["post_multiplier_pricing"],
-            "scoped_group": detect_declared_group_scope(body) or global_context["scoped_group"],
+            "scoped_group": detect_declared_group_scope(body) or section.get("scoped_group") or global_context["scoped_group"],
+            "group_note": parse_group_note(body) or global_context["group_note"],
         }
         model_data.update(price_fields)
-        if any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price")):
+        if model_data.get("model_name") and (
+            any(model_data.get(key) for key in ("input_price", "output_price", "cache_read_price", "cache_write_price", "cache_price"))
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]*", normalize_text(model_data.get("model_name")))
+        ):
             blocks.append(model_data)
 
     return global_context, blocks
@@ -206,7 +365,14 @@ def revert_post_multiplier_price(price_text: str, multiplier: float) -> str:
     return format_price_like(price_text, reverted)
 
 
-def resolve_source_group(block: Dict[str, Any], groups: Dict[str, float]) -> str:
+def group_multiplier_value(raw: Any) -> float:
+    if isinstance(raw, dict):
+        raw = raw.get("multiplier")
+    numeric = to_decimal(raw)
+    return float(numeric) if numeric is not None else 1.0
+
+
+def resolve_source_group(block: Dict[str, Any], groups: Dict[str, Any]) -> str:
     scoped_group = normalize_text(block.get("scoped_group")).lower()
     if scoped_group:
         return scoped_group
@@ -220,14 +386,16 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
     preamble, _ = split_model_sections(text)
     station = parse_station_info(preamble or text)
     station["group_multipliers"] = global_context.get("group_multipliers") or {}
+    station["recharge_ratio"] = global_context.get("recharge_ratio") or "1:1"
 
     entries = []
     for model in model_blocks:
         groups = model.get("group_multipliers") or station.get("group_multipliers") or {"default": 1.0}
+        group_notes = model.get("group_notes") or global_context.get("group_notes") or {}
         source_group = resolve_source_group(model, groups)
         target_groups = groups
-        if source_group and not model.get("post_multiplier_pricing"):
-            target_groups = {source_group: groups.get(source_group, 1.0)}
+        if source_group:
+            target_groups = {source_group: groups.get(source_group, {"multiplier": 1.0})}
 
         base_prices = {
             key: model.get(key)
@@ -235,16 +403,16 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
             if model.get(key)
         }
         if model.get("post_multiplier_pricing") and source_group:
-            source_multiplier = groups.get(source_group, 1.0)
+            source_multiplier = group_multiplier_value(groups.get(source_group, 1.0))
             for price_key, price_value in list(base_prices.items()):
                 base_prices[price_key] = revert_post_multiplier_price(price_value, source_multiplier)
 
-        for group, multiplier in target_groups.items():
+        for group, group_config in target_groups.items():
             pricing = {
                 "model_name": model.get("model_name"),
                 "group": group,
-                "multiplier": multiplier,
-                "recharge_ratio": model.get("recharge_ratio") or global_context.get("recharge_ratio") or "1:1",
+                "multiplier": group_multiplier_value(group_config),
+                "group_note": group_notes.get(group) or model.get("group_note") or "",
             }
             pricing.update(base_prices)
             entries.append(
@@ -263,13 +431,16 @@ def build_batch_payload(text: str) -> Dict[str, Any]:
 
 def ingest_batch(text: str) -> Dict[str, Any]:
     parsed = build_batch_payload(text)
-    registry = load_registry()
-    results = []
-    for entry in parsed["entries"]:
-        results.append(upsert_record(registry, entry))
+    with registry_write_lock():
+        registry = load_registry()
+        results = []
+        for entry in parsed["entries"]:
+            results.append(upsert_record(registry, entry))
+    summary = build_write_summary(results[-1]["station"]) if results else None
     return {
         "station": parsed["station"],
         "count": len(results),
+        "summary": summary,
         "results": results,
     }
 
